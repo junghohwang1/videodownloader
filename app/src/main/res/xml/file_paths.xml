@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- 일반 다운로드 폴더 (Android/data/<패키지>/files/Movies) -->
+    <external-files-path name="videos" path="." />
+    <!-- 비공개 폴더는 외부 공유 대상이 아니므로 노출하지 않는다 -->
+</paths>
