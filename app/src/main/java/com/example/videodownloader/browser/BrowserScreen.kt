@@ -300,7 +300,8 @@ fun BrowserScreen(
                     onClick = { showSheet = true },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(end = 16.dp, bottom = 20.dp),
+                        // 유튜브처럼 하단 메뉴를 남겨 두는 사이트에서는 그 메뉴 위로 올린다.
+                        .padding(end = 16.dp, bottom = if (keepsFixedBars(ui.url)) 72.dp else 20.dp),
                 )
             }
         }

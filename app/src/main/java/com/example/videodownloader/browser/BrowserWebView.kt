@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Message
 import android.view.View
 import android.view.ViewGroup
@@ -78,7 +79,17 @@ fun WebView.scanVideoElements(onResult: (List<String>) -> Unit) {
     }
 }
 
-fun WebView.hideFixedBars() = evaluateJavascript(HIDE_FIXED_BARS_JS, null)
+fun WebView.hideFixedBars() {
+    if (!keepsFixedBars(url)) evaluateJavascript(HIDE_FIXED_BARS_JS, null)
+}
+
+/** 하단 고정 바가 광고가 아니라 사이트의 필수 메뉴인 곳(유튜브 하단 탭 등)은 숨기지 않는다. */
+private val KEEP_FIXED_BAR_HOSTS = listOf("youtube.com", "youtube-nocookie.com")
+
+internal fun keepsFixedBars(url: String?): Boolean {
+    val host = url?.let { Uri.parse(it).host }?.lowercase() ?: return false
+    return KEEP_FIXED_BAR_HOSTS.any { host == it || host.endsWith(".$it") }
+}
 
 @SuppressLint("SetJavaScriptEnabled")
 fun createBrowserWebView(

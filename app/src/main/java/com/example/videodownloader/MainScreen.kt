@@ -5,7 +5,19 @@ import android.view.ViewGroup
 import android.webkit.WebChromeClient
 import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -16,8 +28,8 @@ import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -31,7 +43,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
@@ -141,7 +156,7 @@ fun MainScreen(
         Scaffold(
             snackbarHost = { SnackbarHost(snackbar) },
             bottomBar = {
-                NavigationBar {
+                CompactBottomBar {
                     MainTab.entries.filter { it.inBottomBar }.forEach { item ->
                         val badge = when (item) {
                             MainTab.BROWSER -> tabCount.size.takeIf { it > 1 }
@@ -149,7 +164,10 @@ fun MainScreen(
                             MainTab.COMPLETED -> newCompleted.takeIf { it > 0 }
                             else -> null
                         }
-                        NavigationBarItem(
+                        CompactBottomItem(
+                            label = item.label,
+                            icon = item.icon ?: Icons.Outlined.Folder,
+                            badge = badge,
                             selected = tab == item,
                             onClick = {
                                 // 브라우저를 보고 있을 때 "탭"을 한 번 더 누르면 열린 탭 목록을 연다.
@@ -157,15 +175,6 @@ fun MainScreen(
                                 else if (item == MainTab.BROWSER) showTabList = false
                                 tab = item
                             },
-                            icon = {
-                                val icon = item.icon ?: Icons.Outlined.Folder
-                                if (badge != null) {
-                                    BadgedBox(badge = { Badge { Text("$badge") } }) { Icon(icon, null) }
-                                } else {
-                                    Icon(icon, null)
-                                }
-                            },
-                            label = { Text(item.label) },
                         )
                     }
                 }
@@ -220,5 +229,47 @@ fun MainScreen(
                 modifier = Modifier.fillMaxSize(),
             )
         }
+    }
+}
+
+/** Material3 NavigationBar(80dp)의 절반 높이로 줄인 하단 바. */
+@Composable
+private fun CompactBottomBar(content: @Composable RowScope.() -> Unit) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.navigationBars)
+                .height(44.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            content = content,
+        )
+    }
+}
+
+@Composable
+private fun RowScope.CompactBottomItem(
+    label: String,
+    icon: ImageVector,
+    badge: Int?,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+    Column(
+        Modifier
+            .weight(1f)
+            .fillMaxHeight()
+            .clickable(onClick = onClick),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        val iconContent = @Composable { Icon(icon, null, tint = color, modifier = Modifier.size(20.dp)) }
+        if (badge != null) {
+            BadgedBox(badge = { Badge { Text("$badge") } }) { iconContent() }
+        } else {
+            iconContent()
+        }
+        Text(label, color = color, fontSize = 10.sp, lineHeight = 12.sp)
     }
 }
