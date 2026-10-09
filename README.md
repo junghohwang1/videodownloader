@@ -41,6 +41,10 @@ app/src/main/java/com/example/videodownloader/
 - 다운로드 상태는 모두 Room에 저장합니다. 앱 프로세스가 종료되면 진행 중이던 작업은 다음 실행 때 `일시정지`로 돌아갑니다.
 - 일반 다운로드는 `Android/data/<패키지>/files/Movies` 에 저장하므로 저장소 권한이 필요 없습니다.
 
+## Windows 데스크톱판
+
+`desktop/` 에 Windows 용 앱이 있습니다(Compose Multiplatform, Android 빌드와 분리). 자세한 내용은 [desktop/README.md](desktop/README.md).
+
 ## 빌드
 
 - JDK 17 이상(21에서 확인), Android SDK Platform 37
