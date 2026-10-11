@@ -33,10 +33,11 @@ class SubtitleService : LifecycleService() {
                     val current = jobs.values.firstOrNull { it.phase != SubtitleGenerator.Phase.WAITING }
                         ?: jobs.values.first()
                     val title = if (jobs.size == 1) "자막 만드는 중" else "자막 만드는 중 (${jobs.size}개)"
-                    val text = buildString {
-                        append(current.phase.label)
-                        current.fraction?.let { append(" · ${(it * 100).toInt()}%") }
-                    }
+                    val text = listOfNotNull(
+                        current.phase.label,
+                        current.fraction?.let { "${(it * 100).toInt()}%" },
+                        current.detail,
+                    ).joinToString(" · ")
                     Notifications.notifySafe(
                         this@SubtitleService,
                         Notifications.ID_SUBTITLE,

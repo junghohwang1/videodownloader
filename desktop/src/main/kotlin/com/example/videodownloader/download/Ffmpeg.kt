@@ -49,10 +49,11 @@ class Ffmpeg(private val client: OkHttpClient, private val toolsDir: File) {
         false
     }
 
-    /** 음성 인식용으로 소리만 16kHz 모노 WAV 로 뽑는다. */
-    suspend fun extractSpeechAudio(input: File, output: File) {
+    /** 음성 인식용으로 소리만 16kHz 모노 WAV 로 뽑는다. [speed] 가 1보다 크면 음 높이는 그대로 두고 빠르게 한다. */
+    suspend fun extractSpeechAudio(input: File, output: File, speed: Float = 1f) {
         try {
-            run(listOf("-i", input.path, "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", output.path))
+            val tempo = if (speed != 1f) listOf("-af", "atempo=$speed") else emptyList()
+            run(listOf("-i", input.path, "-vn", "-ac", "1", "-ar", "16000") + tempo + listOf("-c:a", "pcm_s16le", output.path))
         } catch (e: Exception) {
             output.delete()
             throw if (e is IOException || e is kotlinx.coroutines.CancellationException) e

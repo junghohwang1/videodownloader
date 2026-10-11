@@ -140,16 +140,38 @@ class Storage(private val context: Context) {
         private val ILLEGAL = Regex("[\\\\/:*?\"<>|\\p{Cntrl}]")
         private val SPACES = Regex("\\s+")
 
+        /**
+         * 파일 이름으로 쓸 수 없는 글자를 바꾸고 길이를 줄인다.
+         * Android 파일 시스템은 이름을 글자 수가 아니라 UTF-8 255바이트로 제한한다(한글·한자는 한 글자 3바이트).
+         * 겹칠 때 붙는 " (2)", 받는 중의 ".part", 자막 ".srt" 를 붙여도 넘지 않도록 [MAX_NAME_BYTES] 로 자른다.
+         */
         fun sanitizeFileName(name: String): String {
             val cleaned = name.replace(ILLEGAL, "_").replace(SPACES, " ").trim().trim('.')
             if (cleaned.isEmpty()) return "video"
-            if (cleaned.length <= 120) return cleaned
-            val ext = cleaned.substringAfterLast('.', "")
-            return if (ext.isNotEmpty() && ext.length <= 5) {
-                cleaned.substringBeforeLast('.').take(110).trimEnd() + "." + ext
-            } else {
-                cleaned.take(120)
+            if (utf8Length(cleaned) <= MAX_NAME_BYTES) return cleaned
+            val ext = cleaned.substringAfterLast('.', "").takeIf { it.isNotEmpty() && it.length <= 5 && it != cleaned }
+            val base = if (ext != null) cleaned.substringBeforeLast('.') else cleaned
+            val budget = MAX_NAME_BYTES - (ext?.let { utf8Length(it) + 1 } ?: 0)
+            val cut = cutToBytes(base, budget).trimEnd().trimEnd('.')
+            return if (ext != null) "$cut.$ext" else cut
+        }
+
+        private const val MAX_NAME_BYTES = 200
+
+        private fun utf8Length(text: String) = text.toByteArray(Charsets.UTF_8).size
+
+        /** 글자(서로게이트 쌍 포함)를 깨뜨리지 않고 UTF-8 [maxBytes] 바이트 안으로 자른다. */
+        private fun cutToBytes(text: String, maxBytes: Int): String {
+            var bytes = 0
+            var end = 0
+            while (end < text.length) {
+                val cp = text.codePointAt(end)
+                val size = String(Character.toChars(cp)).toByteArray(Charsets.UTF_8).size
+                if (bytes + size > maxBytes) break
+                bytes += size
+                end += Character.charCount(cp)
             }
+            return text.substring(0, end)
         }
 
         fun guessMime(fileName: String): String =

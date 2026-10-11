@@ -22,8 +22,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("com.squareup.okhttp3:okhttp:5.5.0")
     implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.5")
-    // 내장 브라우저(Chromium). 네이티브 번들은 첫 실행 때 내려받는다.
-    implementation("dev.datlag:kcef:2025.03.23")
+    // 내장 브라우저를 Windows 기본 Edge WebView2 로 띄우기 위한 COM 호출
+    implementation("net.java.dev.jna:jna-platform:5.15.0")
 
     testImplementation(kotlin("test"))
     testImplementation("junit:junit:4.13.2")
@@ -34,16 +34,12 @@ compose.desktop {
         mainClass = "com.example.videodownloader.MainKt"
         jvmArgs += listOf(
             "-Dfile.encoding=UTF-8",
-            // 내장 브라우저(JCEF)가 AWT 내부 API 를 쓴다.
-            "--add-opens=java.desktop/sun.awt=ALL-UNNAMED",
-            "--add-opens=java.desktop/java.awt.peer=ALL-UNNAMED",
-            "--add-opens=java.desktop/sun.awt.windows=ALL-UNNAMED",
         )
 
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
             packageName = "VideoDownloader"
-            packageVersion = "1.1.1"
+            packageVersion = "1.2.0"
             // MSI(WiX) 는 코드페이지 1252 라 한글을 넣으면 빌드가 실패한다(LGHT0311). 앱 화면은 한글 그대로다.
             description = "Video Downloader"
             vendor = "junghohwang1"

@@ -17,14 +17,20 @@ object AppShare {
     /** 공개 저장소 최신 릴리스의 APK. */
     const val DOWNLOAD_URL = "https://github.com/$REPO/releases/latest/download/$APK_NAME"
 
+    /** Windows PC 설치 파일(같은 릴리스에 함께 올린다). */
+    const val WINDOWS_URL = "https://github.com/$REPO/releases/latest/download/VideoDownloader-Setup.exe"
+
     /** 자세한 설치 안내(공개 저장소 README). */
     const val GUIDE_URL = "https://github.com/$REPO#readme"
 
     private val INTRO =
         "동영상 다운로더 앱을 추천합니다.\n" +
             "웹페이지·유튜브 영상을 받아 보관하고, 탭 브라우저·번역·비공개 폴더도 쓸 수 있어요. 광고가 없습니다.\n\n" +
-            "■ 받기\n" +
+            "■ 받기 (안드로이드 휴대폰)\n" +
             DOWNLOAD_URL + "\n\n" +
+            "■ 받기 (Windows PC)\n" +
+            WINDOWS_URL + "\n" +
+            " · 실행했을 때 「Windows의 PC 보호」가 뜨면 「추가 정보」 > 「실행」\n\n" +
             installSteps(APK_NAME) + "\n\n" +
             "■ 그래도 어려우면 자세한 안내\n" +
             GUIDE_URL

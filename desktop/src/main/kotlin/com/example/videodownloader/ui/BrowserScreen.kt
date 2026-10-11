@@ -92,14 +92,15 @@ import androidx.compose.ui.input.pointer.onPointerEvent
 import com.example.videodownloader.AppContainer
 import com.example.videodownloader.browser.Bookmark
 import com.example.videodownloader.browser.BrowserController
+import com.example.videodownloader.browser.BrowserUi
+import com.example.videodownloader.browser.DetectedMedia
+import kotlinx.coroutines.flow.MutableStateFlow
 import com.example.videodownloader.browser.EngineState
 import com.example.videodownloader.download.NewDownload
 import com.example.videodownloader.util.DesktopActions
 import kotlinx.coroutines.delay
-import java.awt.CardLayout
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
-import javax.swing.JPanel
 
 /**
  * 브라우저 화면(Android 판과 같은 구성): 위쪽 주소창 + 웹페이지 + 페이지 위에 떠 있는 반투명 원형 다운로드 버튼.
@@ -109,30 +110,28 @@ import javax.swing.JPanel
 fun BrowserScreen(container: AppContainer, onOpenProgress: () -> Unit) {
     val engine by container.browserEngine.state.collectAsState()
     val tabs = container.browser
-    val tabList by tabs.tabs.collectAsState()
-    val currentTab by tabs.current.collectAsState()
 
     LaunchedEffect(engine) {
-        (engine as? EngineState.Ready)?.let { tabs.attach(it.client) }
+        (engine as? EngineState.Ready)?.let { tabs.attach(it.host) }
     }
 
-    val vm = currentTab
-    if (engine !is EngineState.Ready || vm == null) {
-        Box(Modifier.fillMaxSize()) {
-            when (val state = engine) {
-                is EngineState.Preparing -> EngineProgress(state)
-                is EngineState.Failed -> EngineError(state.message) { container.restartBrowserEngine() }
-                EngineState.RestartRequired -> EngineError("브라우저 설치를 마쳤습니다. 앱을 다시 시작해 주세요.", null)
-                is EngineState.Ready -> EngineProgress(EngineState.Preparing("브라우저 시작 중…"))
-            }
-        }
-        return
+    when (val state = engine) {
+        is EngineState.Preparing -> EngineProgress(state.message)
+        is EngineState.Failed -> EngineError(state.message) { container.restartBrowserEngine() }
+        is EngineState.Ready -> BrowserContent(container, onOpenProgress)
     }
+}
 
-    val ui by vm.ui.collectAsState()
-    val detected by vm.detected.collectAsState()
-    val pending by vm.pending.collectAsState()
+@Composable
+private fun BrowserContent(container: AppContainer, onOpenProgress: () -> Unit) {
+    val tabs = container.browser
+    val tabList by tabs.tabs.collectAsState()
+    val vm by tabs.current.collectAsState()
+    val ui by (vm?.ui ?: remember { MutableStateFlow(BrowserUi()) }).collectAsState()
+    val detected by (vm?.detected ?: remember { MutableStateFlow(emptyList<DetectedMedia>()) }).collectAsState()
+    val pending by (vm?.pending ?: remember { MutableStateFlow<DetectedMedia?>(null) }).collectAsState()
     val bookmarks by container.bookmarks.items.collectAsState()
+    val current = vm
 
     var showSheet by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -144,16 +143,11 @@ fun BrowserScreen(container: AppContainer, onOpenProgress: () -> Unit) {
         }
     }
 
-    // 탭마다 웹페이지(Chromium) 컴포넌트가 하나씩 있다. CardLayout 에 모두 넣어 두고 보고 있는 탭만 보여 준다
-    // (컴포넌트를 뺐다 넣으면 Chromium 창을 다시 만들며 깜빡인다).
-    val cards = remember { CardLayout() }
-    val pagePanel = remember { JPanel(cards) }
-
     Column(Modifier.fillMaxSize()) {
-        if (!ui.fullscreen) {
+        if (current != null && !ui.fullscreen) {
             TabStrip(
                 tabs = tabList,
-                currentId = vm.id,
+                currentId = current.id,
                 onSelect = tabs::select,
                 onClose = tabs::close,
                 onNew = { tabs.newTab() },
@@ -163,16 +157,16 @@ fun BrowserScreen(container: AppContainer, onOpenProgress: () -> Unit) {
                 loading = ui.loading,
                 showBack = !ui.showHome,
                 canGoForward = ui.canGoForward || (ui.showHome && ui.url.isNotBlank()),
-                onBack = vm::goBack,
-                onForward = vm::goForward,
-                onSubmit = vm::load,
-                onReloadOrStop = vm::reloadOrStop,
+                onBack = current::goBack,
+                onForward = current::goForward,
+                onSubmit = current::load,
+                onReloadOrStop = current::reloadOrStop,
                 menu = { dismiss ->
                     if (!ui.showHome) {
-                        DropdownMenuItem(text = { Text("홈") }, onClick = { dismiss(); vm.showHome() })
+                        DropdownMenuItem(text = { Text("홈") }, onClick = { dismiss(); current.showHome() })
                         DropdownMenuItem(text = { Text("북마크에 추가") }, onClick = {
                             dismiss()
-                            vm.addCurrentBookmark()
+                            current.addCurrentBookmark()
                             message = "북마크에 추가했습니다"
                         })
                         DropdownMenuItem(text = { Text("링크 복사") }, onClick = {
@@ -198,50 +192,41 @@ fun BrowserScreen(container: AppContainer, onOpenProgress: () -> Unit) {
                 if (ui.loading && !ui.showHome) LinearProgressIndicator(Modifier.fillMaxSize())
             }
             message?.let { MessageBar(it, onOpenProgress) { message = null } }
-            if (ui.unsupportedVideo && !ui.showHome) {
-                UnsupportedVideoBar(
-                    onOpenExternal = { DesktopActions.browse(ui.url) },
-                    onDownload = { showSheet = true },
-                    onClose = vm::dismissUnsupportedVideo,
-                )
-            }
         }
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
-            // 웹페이지는 홈 화면일 때도 구성에서 빼지 않고 크기만 0으로 줄인다(빼면 모든 탭의 Chromium 창이 다시 만들어진다).
+            // 모든 탭의 웹뷰(Edge WebView2)가 이 자리 안에 들어간다. 홈 화면이나 탭을 여는 중에도 구성에서 빼지 않고
+            // 크기만 0으로 줄인다(빼면 창 핸들이 바뀌어 웹뷰가 사라진다).
+            val showPage = current != null && !ui.showHome
             SwingPanel(
-                factory = { pagePanel },
-                update = { panel ->
-                    val wanted = tabList.mapNotNull { tab -> tab.component?.let { tab.id.toString() to it } }
-                    val wantedComponents = wanted.map { it.second }.toSet()
-                    panel.components.filter { it !in wantedComponents }.forEach(panel::remove)
-                    wanted.forEach { (name, page) -> if (page.parent !== panel) panel.add(page, name) }
-                    cards.show(panel, vm.id.toString())
-                    panel.revalidate()
-                },
-                modifier = if (ui.showHome) Modifier.size(0.dp) else Modifier.fillMaxSize(),
+                factory = { tabs.pageArea },
+                modifier = if (showPage) Modifier.fillMaxSize() else Modifier.size(0.dp),
             )
-            if (ui.showHome) {
-                HomeContent(
+            when {
+                current == null -> EngineProgress("브라우저 시작 중…")
+                ui.showHome -> HomeContent(
                     bookmarks = bookmarks,
-                    onSearch = vm::load,
-                    onOpen = vm::load,
+                    onSearch = current::load,
+                    onOpen = current::load,
                     onAdd = container.bookmarks::add,
                     onDelete = container.bookmarks::delete,
                 )
-            } else if (!ui.fullscreen) {
-                // 웹페이지(Chromium)는 OS 창이라 그 위에 그리는 버튼·메뉴는 별도 창(Popup)으로 띄운다.
-                val margin = with(LocalDensity.current) { 28.dp.roundToPx() }
-                Popup(
-                    alignment = Alignment.BottomEnd,
-                    offset = IntOffset(-margin, -margin),
-                    properties = PopupProperties(focusable = false),
-                ) {
-                    DownloadFab(count = detected.size, onClick = { showSheet = true })
+                !ui.fullscreen -> {
+                    // 웹페이지는 OS 창이라 그 위에 그리는 버튼·메뉴는 별도 창(Popup)으로 띄운다.
+                    val margin = with(LocalDensity.current) { 28.dp.roundToPx() }
+                    Popup(
+                        alignment = Alignment.BottomEnd,
+                        offset = IntOffset(-margin, -margin),
+                        properties = PopupProperties(focusable = false),
+                    ) {
+                        DownloadFab(count = detected.size, onClick = { showSheet = true })
+                    }
                 }
             }
         }
     }
+
+    if (current == null) return
 
     // 다운로드 버튼(감지된 영상) 또는 우클릭 메뉴(pending)로 연다.
     val sheetItems = pending?.let { listOf(it) } ?: if (showSheet) detected else null
@@ -252,11 +237,11 @@ fun BrowserScreen(container: AppContainer, onOpenProgress: () -> Unit) {
             saveDir = container.storage.downloadDir,
             onDismiss = {
                 showSheet = false
-                vm.dismissPending()
+                current.dismissPending()
             },
             onDownload = { media, option, fileName ->
                 showSheet = false
-                vm.dismissPending()
+                current.dismissPending()
                 container.downloads.enqueue(
                     NewDownload(
                         url = option.url,
@@ -413,24 +398,6 @@ private fun AddressBar(
     }
 }
 
-/** 내장 브라우저가 못 푸는 형식(H.264)이라 재생되지 않는 영상 안내. */
-@Composable
-private fun UnsupportedVideoBar(onOpenExternal: () -> Unit, onDownload: () -> Unit, onClose: () -> Unit) {
-    Surface(color = MaterialTheme.colorScheme.tertiaryContainer, contentColor = MaterialTheme.colorScheme.onTertiaryContainer) {
-        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "이 영상은 내장 브라우저가 지원하지 않는 형식(H.264)이라 재생되지 않습니다.",
-                Modifier.weight(1f),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            TextButton(onClick = onOpenExternal) { Text("기본 브라우저로 보기") }
-            TextButton(onClick = onDownload) { Text("다운로드해서 보기") }
-            IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "닫기") }
-        }
-    }
-}
-
 @Composable
 private fun MessageBar(text: String, onOpenProgress: () -> Unit, onClose: () -> Unit) {
     Surface(color = MaterialTheme.colorScheme.inverseSurface, contentColor = MaterialTheme.colorScheme.inverseOnSurface) {
@@ -577,19 +544,15 @@ private fun SiteTile(label: String, modifier: Modifier = Modifier, letter: Strin
 }
 
 @Composable
-private fun EngineProgress(state: EngineState.Preparing) {
+private fun EngineProgress(message: String) {
     Column(
         Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        if (state.progress >= 0) {
-            LinearProgressIndicator(progress = { state.progress / 100f }, modifier = Modifier.width(320.dp))
-        } else {
-            CircularProgressIndicator()
-        }
+        CircularProgressIndicator()
         Spacer(Modifier.height(16.dp))
-        Text(state.message + if (state.progress >= 0) " ${state.progress.toInt()}%" else "")
+        Text(message)
     }
 }
 

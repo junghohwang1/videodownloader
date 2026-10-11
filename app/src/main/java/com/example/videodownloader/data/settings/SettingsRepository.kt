@@ -44,6 +44,10 @@ data class AppSettings(
     val blockAds: Boolean = true,
     /** 영상 다운로드가 끝나면 자동으로 자막을 만든다(음성 인식). */
     val autoSubtitles: Boolean = false,
+    /** 자막 만들기 때 소리를 1.5배속으로 줄여 빨리 인식한다(조금 덜 정확할 수 있음). */
+    val fastSubtitles: Boolean = false,
+    /** (실험) 자막 만들기 때 조각 2개를 동시에 인식한다. */
+    val parallelSubtitles: Boolean = false,
 )
 
 private val Context.settingsStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
@@ -62,6 +66,8 @@ class SettingsRepository(private val context: Context) {
         val OFFER_TRANSLATION = booleanPreferencesKey("offer_translation")
         val BLOCK_ADS = booleanPreferencesKey("block_ads")
         val AUTO_SUBTITLES = booleanPreferencesKey("auto_subtitles")
+        val FAST_SUBTITLES = booleanPreferencesKey("fast_subtitles")
+        val PARALLEL_SUBTITLES = booleanPreferencesKey("parallel_subtitles")
     }
 
     private val store get() = context.settingsStore
@@ -82,6 +88,8 @@ class SettingsRepository(private val context: Context) {
                 offerTranslation = p[Keys.OFFER_TRANSLATION] ?: true,
                 blockAds = p[Keys.BLOCK_ADS] ?: true,
                 autoSubtitles = p[Keys.AUTO_SUBTITLES] ?: false,
+                fastSubtitles = p[Keys.FAST_SUBTITLES] ?: false,
+                parallelSubtitles = p[Keys.PARALLEL_SUBTITLES] ?: false,
             )
         }
 
@@ -109,6 +117,14 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setOfferTranslation(value: Boolean) {
         store.edit { it[Keys.OFFER_TRANSLATION] = value }
+    }
+
+    suspend fun setParallelSubtitles(value: Boolean) {
+        store.edit { it[Keys.PARALLEL_SUBTITLES] = value }
+    }
+
+    suspend fun setFastSubtitles(value: Boolean) {
+        store.edit { it[Keys.FAST_SUBTITLES] = value }
     }
 
     suspend fun setAutoSubtitles(value: Boolean) {

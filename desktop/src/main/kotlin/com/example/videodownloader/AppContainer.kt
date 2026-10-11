@@ -9,6 +9,7 @@ import com.example.videodownloader.data.SettingsRepository
 import com.example.videodownloader.download.DownloadManager
 import com.example.videodownloader.download.Ffmpeg
 import com.example.videodownloader.download.UrlAnalyzer
+import com.example.videodownloader.download.cookieProvider
 import com.example.videodownloader.subtitle.SubtitleGenerator
 import com.example.videodownloader.subtitle.SubtitleTranslator
 import com.example.videodownloader.subtitle.WhisperTools
@@ -50,7 +51,7 @@ class AppContainer {
         stateFile = File(dataDir, "tabs.json"),
         isAdRequest = adBlocker::isAdRequest,
         pageScript = adBlocker::pageScript,
-        earlyScript = adBlocker::earlyScript,
+        earlyScripts = adBlocker::earlyScripts,
     )
 
     val subtitles = SubtitleGenerator(
@@ -59,6 +60,7 @@ class AppContainer {
         translator = SubtitleTranslator(client),
         workDir = File(dataDir, "work"),
         scope = scope,
+        fastMode = { settings.current().fastSubtitles },
     )
 
     init {
@@ -66,6 +68,8 @@ class AppContainer {
         downloads.recoverInterrupted()
         adBlocker.start()
         browserEngine.start()
+        // 로그인이 필요한 사이트의 영상도 받을 수 있도록 다운로드 때 브라우저 쿠키를 함께 보낸다.
+        cookieProvider = browser::cookieHeader
         // 설정에서 켜 두면 영상 다운로드가 끝나는 대로 자막을 만든다.
         scope.launch {
             downloads.completed.collect { item ->
@@ -85,7 +89,7 @@ class AppContainer {
     fun shutdown() {
         downloads.pauseAll()
         store.flush()
+        cookieProvider = null
         browser.dispose()
-        browserEngine.dispose()
     }
 }

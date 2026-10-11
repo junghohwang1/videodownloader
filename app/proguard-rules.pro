@@ -14,3 +14,10 @@
 -keep class jdk.dynalink.** { *; }
 -dontwarn jdk.dynalink.**
 -keepclassmembers class * extends com.google.protobuf.GeneratedMessageLite { <fields>; }
+
+# ML Kit 번역(자막 번역): R8 전체 모드가 내부 부품을 지우거나 이름을 바꿔 Translation.getClient 에서 NullPointerException 이 났다.
+-keep class com.google.mlkit.** { *; }
+-keep class com.google.android.gms.internal.mlkit_translate.** { *; }
+-keep class com.google.android.gms.internal.mlkit_common.** { *; }
+-keep class com.google.firebase.components.** { *; }
+-dontwarn com.google.mlkit.**

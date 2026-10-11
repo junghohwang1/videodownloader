@@ -31,6 +31,8 @@ class SubtitleGenerator(
     private val translator: SubtitleTranslator,
     private val workDir: File,
     private val scope: CoroutineScope,
+    /** 설정의 「빠른 자막 만들기(1.5배속)」 */
+    private val fastMode: () -> Boolean = { false },
 ) {
     /** [fraction] 은 0..1, 모르면 null. */
     data class Progress(val label: String, val fraction: Float?)
@@ -81,20 +83,41 @@ class SubtitleGenerator(
     private suspend fun run(request: Request) {
         val wav = File(workDir, "subtitle-${request.id}.wav")
         val outBase = File(workDir, "subtitle-${request.id}")
+        val condensed = File(workDir, "subtitle-${request.id}-speech.wav")
+        val fast = File(workDir, "subtitle-${request.id}-fast.wav")
         try {
             if (!request.video.isFile) throw IOException("파일이 없습니다")
             set(request.id, "준비 중", null)
             ffmpeg.ensure { done, total -> set(request.id, "ffmpeg 받는 중", if (total > 0) done.toFloat() / total else null) }
             val (cli, model) = tools.ensure { label, fraction -> set(request.id, label, fraction) }
 
+            val vad = tools.ensureVad()
+            val speed = if (fastMode()) FAST_SPEED else 1f
             set(request.id, "소리 추출 중", null)
             workDir.mkdirs()
             ffmpeg.extractSpeechAudio(request.video, wav)
 
+            // 무음·음악 구간은 건너뛴다: 말소리 구간만 이어 붙여 인식하고, 자막 시간은 대응표로 원래 시간으로 되돌린다.
+            set(request.id, "말소리 구간 찾는 중", null)
+            val regions = vad?.let { tools.speechRegions(wav, it) }?.let { SpeechRegions.build(it) }
+            if (regions != null && regions.isEmpty) throw IOException("말소리를 찾지 못했습니다")
+            if (regions != null) Wav.write(condensed, regions.condense(Wav.read(wav), SAMPLE_RATE)) else wav.copyTo(condensed, true)
+            // 설정에 따라 소리를 1.5배속으로 줄여 인식할 분량을 더 줄인다(음 높이는 그대로).
+            val input = if (speed != 1f) fast.also { ffmpeg.extractSpeechAudio(condensed, it, speed) } else condensed
+
             set(request.id, "음성 인식 중", 0f)
-            val language = recognize(request.id, cli, model, wav, outBase)
+            val language = recognize(request.id, cli, model, input, outBase)
             val cues = Srt.parse(File(outBase.path + ".srt").readText())
                 .filterNot { NOISE.matches(it.text.trim()) }
+                .map { cue ->
+                    // 배속을 되돌린 뒤, 이어 붙인 오디오의 시간을 원래 영상 시간으로 바꾼다.
+                    val start = cue.start * speed
+                    val end = cue.end * speed
+                    if (regions == null) cue.copy(start = start, end = end)
+                    else cue.copy(start = regions.mapStart(start), end = regions.mapEnd(end))
+                }
+                .filter { it.end > it.start }
+                .let(Srt::tidy)
             if (cues.isEmpty()) throw IOException("말소리를 찾지 못했습니다")
 
             val korean = if (language.startsWith("ko")) {
@@ -116,8 +139,7 @@ class SubtitleGenerator(
         } catch (e: Exception) {
             _messages.tryEmit("자막 만들기 실패: ${e.message ?: e.javaClass.simpleName}")
         } finally {
-            wav.delete()
-            File(outBase.path + ".srt").delete()
+            listOf(wav, condensed, fast, File(outBase.path + ".srt")).forEach { it.delete() }
         }
     }
 
@@ -125,10 +147,13 @@ class SubtitleGenerator(
     private suspend fun recognize(id: Long, cli: File, model: File, wav: File, outBase: File): String =
         withContext(Dispatchers.IO) {
             val threads = Runtime.getRuntime().availableProcessors().coerceIn(1, 8)
-            val process = ProcessBuilder(
+            val args = listOf(
                 cli.path, "-m", model.path, "-f", wav.path, "-l", "auto", "-t", threads.toString(),
                 "-pp", "-osrt", "-of", outBase.path,
-            ).directory(cli.parentFile).redirectErrorStream(true).start()
+                // 앞 문장을 다음 구간의 힌트로 넘기지 않는다(같은 문장이 되풀이되는 일을 막는다).
+                "-mc", "0",
+            )
+            val process = ProcessBuilder(args).directory(cli.parentFile).redirectErrorStream(true).start()
             var language = ""
             var lastLine = ""
             try {
@@ -161,6 +186,8 @@ class SubtitleGenerator(
     }
 
     private companion object {
+        const val FAST_SPEED = 1.5f
+        const val SAMPLE_RATE = 16_000
         val PROGRESS = Regex("""progress\s*=\s*(\d+)%""")
         val LANGUAGE = Regex("""auto-detected language:\s*([a-z-]+)""")
 

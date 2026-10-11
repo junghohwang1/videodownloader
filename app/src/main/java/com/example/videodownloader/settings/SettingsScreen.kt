@@ -75,6 +75,8 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     fun setOfferTranslation(v: Boolean) = launch { repo.setOfferTranslation(v) }
     fun setBlockAds(v: Boolean) = launch { repo.setBlockAds(v) }
     fun setAutoSubtitles(v: Boolean) = launch { repo.setAutoSubtitles(v) }
+    fun setFastSubtitles(v: Boolean) = launch { repo.setFastSubtitles(v) }
+    fun setParallelSubtitles(v: Boolean) = launch { repo.setParallelSubtitles(v) }
 
     fun speechModelBytes(): Long = container.subtitles.model.storedBytes
 
@@ -172,6 +174,18 @@ fun SettingsScreen(vm: SettingsViewModel, snackbar: SnackbarHostState, onBack: (
                 "영상을 다 받으면 말소리를 인식해 한국어 자막을 만듭니다. 유튜브 자막을 받은 영상은 건너뜁니다",
                 s.autoSubtitles,
                 vm::setAutoSubtitles,
+            )
+            SwitchItem(
+                "빠른 자막 만들기 (1.5배속)",
+                "소리를 빠르게 해서 인식 시간을 줄입니다. 말이 빠른 영상은 조금 덜 정확할 수 있습니다. 말 없는 구간은 이 설정과 관계없이 늘 건너뜁니다",
+                s.fastSubtitles,
+                vm::setFastSubtitles,
+            )
+            SwitchItem(
+                "동시에 2개씩 인식 (실험)",
+                "영상 조각 2개를 함께 인식합니다. 휴대폰에 따라 빨라지지 않거나, 메모리를 더 쓰고 더 뜨거워질 수 있습니다",
+                s.parallelSubtitles,
+                vm::setParallelSubtitles,
             )
             var modelBytes by remember { mutableStateOf(vm.speechModelBytes()) }
             ListItem(
