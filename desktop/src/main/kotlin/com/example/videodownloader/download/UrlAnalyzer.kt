@@ -41,7 +41,8 @@ data class AnalysisResult(
  */
 class UrlAnalyzer(private val client: OkHttpClient) {
 
-    suspend fun analyze(input: String): AnalysisResult {
+    /** @param referer 브라우저에서 감지한 영상이면 그 페이지 주소. 핫링크 차단 서버는 Referer 가 있어야 응답한다. */
+    suspend fun analyze(input: String, referer: String? = null): AnalysisResult {
         val url = normalize(input) ?: throw IOException("올바른 주소가 아닙니다")
 
         YouTubeSupport.videoId(url)?.let { id ->
@@ -67,16 +68,16 @@ class UrlAnalyzer(private val client: OkHttpClient) {
             )
         }
 
-        val head = fetchHead(url, referer = null)
+        val head = fetchHead(url, referer)
         return when {
             head.isHls -> {
-                val (options, duration) = hlsOptions(url, head.text ?: fetchText(url, null), null)
-                AnalysisResult(fileTitle(url), url, null, durationSec = duration, options = options)
+                val (options, duration) = hlsOptions(url, head.text ?: fetchText(url, referer), referer)
+                AnalysisResult(fileTitle(url), referer ?: url, referer, durationSec = duration, options = options)
             }
             head.isVideo -> AnalysisResult(
                 title = head.fileName?.substringBeforeLast('.') ?: fileTitle(url),
-                pageUrl = url,
-                referer = null,
+                pageUrl = referer ?: url,
+                referer = referer,
                 options = listOf(fileOption(url, head)),
             )
             head.isHtml -> analyzePage(url, head.text.orEmpty())

@@ -12,7 +12,7 @@ import android.content.Intent
  */
 object AppShare {
     const val APK_NAME = "videodownloader.apk"
-    private const val REPO = "junghohwang1/video-downloader-download"
+    const val REPO ="junghohwang1/video-downloader-download"
 
     /** 공개 저장소 최신 릴리스의 APK. */
     const val DOWNLOAD_URL = "https://github.com/$REPO/releases/latest/download/$APK_NAME"

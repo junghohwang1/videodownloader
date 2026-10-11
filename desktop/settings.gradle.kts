@@ -15,6 +15,10 @@ dependencyResolutionManagement {
         maven("https://jitpack.io") {
             content { includeGroup("com.github.TeamNewPipe") }
         }
+        // 내장 브라우저(JCEF)가 쓰는 JOGL 은 JogAmp 저장소에만 있다.
+        maven("https://jogamp.org/deployment/maven") {
+            content { includeGroupByRegex("org\\.jogamp.*") }
+        }
     }
 }
 

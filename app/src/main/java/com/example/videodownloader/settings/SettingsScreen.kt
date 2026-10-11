@@ -48,6 +48,8 @@ import com.example.videodownloader.data.settings.SearchEngine
 import com.example.videodownloader.ui.common.ConfirmDialog
 import com.example.videodownloader.ui.common.TextInputDialog
 import com.example.videodownloader.util.AppShare
+import com.example.videodownloader.util.FolderOpener
+import com.example.videodownloader.util.formatBytes
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -71,6 +73,19 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     fun setSaveHistory(v: Boolean) = launch { repo.setSaveHistory(v) }
     fun setHideFixedBars(v: Boolean) = launch { repo.setHideFixedBars(v) }
     fun setOfferTranslation(v: Boolean) = launch { repo.setOfferTranslation(v) }
+    fun setBlockAds(v: Boolean) = launch { repo.setBlockAds(v) }
+    fun setAutoSubtitles(v: Boolean) = launch { repo.setAutoSubtitles(v) }
+
+    fun speechModelBytes(): Long = container.subtitles.model.storedBytes
+
+    fun deleteSpeechModel() {
+        if (container.subtitles.jobs.value.isNotEmpty()) {
+            _messages.tryEmit("자막을 만드는 중에는 지울 수 없습니다")
+            return
+        }
+        container.subtitles.model.delete()
+        _messages.tryEmit("음성 인식 모델을 삭제했습니다")
+    }
     fun setSearchEngine(v: SearchEngine) = launch { repo.setSearchEngine(v) }
 
     fun clearHistory() = launch {
@@ -85,6 +100,14 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
         } else {
             _messages.tryEmit("PIN 이 올바르지 않습니다")
         }
+    }
+
+    /** 새 버전이 있으면 메인 화면의 업데이트 안내창이 뜨고, 없으면 메시지로 알린다. */
+    fun checkUpdate() = launch {
+        _messages.tryEmit("업데이트 확인 중…")
+        runCatching { container.updater.check() }
+            .onSuccess { if (it == null) _messages.tryEmit("최신 버전입니다 (${BuildConfig.VERSION_NAME})") }
+            .onFailure { _messages.tryEmit("업데이트 확인 실패: ${it.message}") }
     }
 
     fun notify(text: String) {
@@ -105,6 +128,7 @@ fun SettingsScreen(vm: SettingsViewModel, snackbar: SnackbarHostState, onBack: (
     var confirmHistory by remember { mutableStateOf(false) }
     var confirmBrowsingData by remember { mutableStateOf(false) }
     var pinDialog by remember { mutableStateOf(false) }
+    var confirmDeleteModel by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { vm.messages.collect { snackbar.showSnackbar(it) } }
 
@@ -135,15 +159,55 @@ fun SettingsScreen(vm: SettingsViewModel, snackbar: SnackbarHostState, onBack: (
             SwitchItem("Wi-Fi 에서만 다운로드", "모바일 데이터 사용 시 다운로드를 시작하지 않습니다", s.wifiOnly, vm::setWifiOnly)
             SwitchItem("완료 알림", "다운로드가 끝나면 알림을 표시합니다", s.notifyOnComplete, vm::setNotify)
             ListItem(
+                modifier = Modifier.clickable {
+                    if (!FolderOpener.open(context, java.io.File(vm.downloadDir))) vm.notify("파일 앱에서 열 수 없는 위치입니다")
+                },
                 headlineContent = { Text("저장 위치") },
-                supportingContent = { Text(vm.downloadDir) },
+                supportingContent = { Text("${vm.downloadDir}\n눌러서 폴더 열기") },
             )
+
+            Section("자막")
+            SwitchItem(
+                "다운로드 후 자동으로 자막 만들기",
+                "영상을 다 받으면 말소리를 인식해 한국어 자막을 만듭니다. 유튜브 자막을 받은 영상은 건너뜁니다",
+                s.autoSubtitles,
+                vm::setAutoSubtitles,
+            )
+            var modelBytes by remember { mutableStateOf(vm.speechModelBytes()) }
+            ListItem(
+                modifier = Modifier.clickable(enabled = modelBytes > 0) { confirmDeleteModel = true },
+                headlineContent = { Text("음성 인식 모델") },
+                supportingContent = {
+                    Text(
+                        if (modelBytes > 0) "${formatBytes(modelBytes)} 사용 중 · 눌러서 삭제"
+                        else "처음 자막을 만들 때 받습니다 (약 190MB)",
+                    )
+                },
+            )
+            if (confirmDeleteModel) {
+                ConfirmDialog(
+                    title = "음성 인식 모델 삭제",
+                    message = "모델을 지우면 다음에 자막을 만들 때 다시 받습니다(약 190MB).",
+                    confirmLabel = "삭제",
+                    onConfirm = {
+                        vm.deleteSpeechModel()
+                        modelBytes = vm.speechModelBytes()
+                    },
+                    onDismiss = { confirmDeleteModel = false },
+                )
+            }
 
             Section("브라우저")
             ListItem(
                 modifier = Modifier.clickable { engineDialog = true },
                 headlineContent = { Text("검색 엔진") },
                 supportingContent = { Text(s.searchEngine.label) },
+            )
+            SwitchItem(
+                "광고 차단",
+                "광고 서버(약 7만 개 도메인 목록)·광고 칸·유튜브 영상 광고를 막습니다",
+                s.blockAds,
+                vm::setBlockAds,
             )
             SwitchItem(
                 "페이지 하단 고정 메뉴 숨기기",
@@ -178,7 +242,11 @@ fun SettingsScreen(vm: SettingsViewModel, snackbar: SnackbarHostState, onBack: (
             }
 
             Section("정보")
-            ListItem(headlineContent = { Text("버전") }, supportingContent = { Text(BuildConfig.VERSION_NAME) })
+            ListItem(
+                modifier = Modifier.clickable { vm.checkUpdate() },
+                headlineContent = { Text("버전 ${BuildConfig.VERSION_NAME}") },
+                supportingContent = { Text("눌러서 업데이트 확인") },
+            )
             ListItem(
                 modifier = Modifier.clickable { runCatching { AppShare.shareApp(context) } },
                 headlineContent = { Text("친구에게 앱 공유") },

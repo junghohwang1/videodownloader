@@ -169,6 +169,7 @@ fun GetScreen(container: AppContainer, state: GetState) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 12.dp)) {
                 Text("진행 중", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                TextButton(onClick = { DesktopActions.open(container.storage.downloadDir) }) { Text("저장 폴더 열기") }
                 if (inProgress.isNotEmpty()) {
                     TextButton(onClick = { container.downloads.resumeAll() }) { Text("모두 재개") }
                     TextButton(onClick = { container.downloads.pauseAll() }) { Text("모두 일시정지") }

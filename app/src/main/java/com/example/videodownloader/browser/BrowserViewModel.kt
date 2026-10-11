@@ -148,6 +148,9 @@ class BrowserViewModel(private val container: AppContainer) : ViewModel() {
     val hideFixedBars: StateFlow<Boolean> =
         settings.map { it.hideFixedBars }.stateIn(viewModelScope, SharingStarted.Eagerly, true)
 
+    val blockAds: StateFlow<Boolean> =
+        settings.map { it.blockAds }.stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
     @Volatile
     var userAgent: String? = null
 

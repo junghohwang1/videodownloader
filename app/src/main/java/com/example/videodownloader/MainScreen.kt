@@ -41,6 +41,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -63,6 +64,8 @@ import com.example.videodownloader.files.ProgressScreen
 import com.example.videodownloader.settings.SettingsScreen
 import com.example.videodownloader.settings.SettingsViewModel
 import com.example.videodownloader.ui.common.appViewModel
+import com.example.videodownloader.update.UpdateDialog
+import kotlinx.coroutines.launch
 import com.example.videodownloader.vault.PrivateScreen
 import com.example.videodownloader.vault.PrivateViewModel
 
@@ -146,6 +149,28 @@ fun MainScreen(
         it.status == DownloadStatus.COMPLETED && !it.isPrivate && (it.completedAt ?: 0) > completedSeenAt
     }
     val tabCount by browserVm.tabInfos.collectAsStateWithLifecycle()
+
+    // 앱을 켤 때 새 버전을 확인하고, 있으면 안내창을 띄운다(설정 > 버전에서 직접 확인해도 같은 창이 뜬다).
+    val updater = context.appContainer.updater
+    val update by updater.available.collectAsStateWithLifecycle()
+    val updateProgress by updater.progress.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(Unit) { updater.checkOnLaunch() }
+    // 자막 만들기 완료·실패는 어느 화면에 있든 알린다.
+    LaunchedEffect(Unit) { context.appContainer.subtitles.messages.collect { snackbar.showSnackbar(it) } }
+    update?.let { info ->
+        UpdateDialog(
+            info = info,
+            progress = updateProgress,
+            onUpdate = {
+                scope.launch {
+                    runCatching { updater.downloadAndInstall(info) }
+                        .onFailure { snackbar.showSnackbar("업데이트 실패: ${it.message}") }
+                }
+            },
+            onDismiss = updater::dismiss,
+        )
+    }
 
     // 브라우저가 아닌 화면에서 뒤로 가면 브라우저로 돌아간다.
     BackHandler(enabled = tab != MainTab.BROWSER) {

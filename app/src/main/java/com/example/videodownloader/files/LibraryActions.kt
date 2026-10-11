@@ -25,6 +25,7 @@ class LibraryActions(
         val desired = if (ext.isEmpty()) newBaseName else "$newBaseName.$ext"
         val dst = storage.uniqueFile(src.parentFile ?: storage.dirFor(item.isPrivate), desired)
         if (!src.renameTo(dst)) throw IOException("이름을 바꿀 수 없습니다")
+        moveSubtitle(src, dst)
         dao.updateLocation(item.id, dst.path, dst.name, item.isPrivate)
     }
 
@@ -32,11 +33,29 @@ class LibraryActions(
         val src = File(item.filePath)
         if (!src.exists()) throw IOException("파일이 없습니다")
         val dst = storage.moveFile(src, storage.dirFor(isPrivate))
+        moveSubtitle(src, dst)
         dao.updateLocation(item.id, dst.path, dst.name, isPrivate)
     }
 
-    suspend fun exportToGallery(item: DownloadEntity) = withContext(Dispatchers.IO) {
-        storage.exportToGallery(File(item.filePath), item.mimeType)
+    /** 갤러리로 복사한 뒤 앱 쪽 원본과 목록 항목을 지운다(복사가 실패하면 아무것도 지우지 않는다). */
+    suspend fun exportToGallery(item: DownloadEntity) {
+        withContext(Dispatchers.IO) {
+            val video = File(item.filePath)
+            val name = storage.exportToGallery(video, item.mimeType)
+            Storage.subtitleFor(video).takeIf { it.exists() }?.let { storage.exportSubtitle(it, name) }
+        }
+        downloadManager.delete(item.id, deleteFile = true)
+    }
+
+    /** 영상 이름이 바뀌거나 옮겨지면 자막 파일도 같은 이름으로 따라간다. */
+    private fun moveSubtitle(oldVideo: File, newVideo: File) {
+        val src = Storage.subtitleFor(oldVideo)
+        if (!src.exists()) return
+        val dst = Storage.subtitleFor(newVideo)
+        if (!src.renameTo(dst)) {
+            src.copyTo(dst, overwrite = true)
+            src.delete()
+        }
     }
 
     suspend fun delete(item: DownloadEntity) = downloadManager.delete(item.id, deleteFile = true)

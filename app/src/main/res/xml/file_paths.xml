@@ -2,5 +2,9 @@
 <paths>
     <!-- 일반 다운로드 폴더 (Android/data/<패키지>/files/Movies) -->
     <external-files-path name="videos" path="." />
+    <!-- 공용 다운로드 폴더 (내장 저장공간/Download/VideoDownloader, Android 11+) -->
+    <external-path name="shared_downloads" path="Download/VideoDownloader/" />
+    <!-- 앱 안 업데이트로 받은 설치 파일 -->
+    <cache-path name="updates" path="updates/" />
     <!-- 비공개 폴더는 외부 공유 대상이 아니므로 노출하지 않는다 -->
 </paths>

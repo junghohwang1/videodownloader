@@ -119,9 +119,17 @@ fun createBrowserWebView(
     cookies.setAcceptThirdPartyCookies(this, true)
     vm.userAgent = settings.userAgentString
 
+    AdBlock.setEnabled(this, vm.blockAds.value)
+
+    setOnScrollChangeListener { view, _, scrollY, _, _ -> scrollMemory.record((view as WebView).url, scrollY) }
+
     webViewClient = object : WebViewClient() {
         override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
-            // 요청을 가로채지 않고 관찰만 한다.
+            // 사용자가 직접 연 페이지(메인 프레임)는 막지 않는다.
+            if (vm.blockAds.value && !request.isForMainFrame && AdBlock.isAdRequest(request.url)) {
+                return AdBlock.emptyResponse()
+            }
+            // 그 밖의 요청은 가로채지 않고 관찰만 한다.
             vm.onResourceRequest(tabId, request.url.toString(), request.requestHeaders, request.isForMainFrame)
             return null
         }
@@ -145,6 +153,8 @@ fun createBrowserWebView(
         }
 
         override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+            view.scrollMemory.loading = true
+            if (vm.blockAds.value) AdBlock.injectFallback(view)
             url?.let { vm.onPageStarted(tabId, it) }
             vm.onNavState(tabId, view.canGoBack(), view.canGoForward())
         }
@@ -152,6 +162,8 @@ fun createBrowserWebView(
         override fun onPageFinished(view: WebView, url: String?) {
             url?.let { vm.onPageFinished(tabId, it, view.title) }
             vm.onNavState(tabId, view.canGoBack(), view.canGoForward())
+            view.scrollMemory.loading = false
+            view.scrollMemory.restore(view, url)
             view.scanVideoElements { vm.onVideoElements(tabId, it) }
             if (vm.hideFixedBars.value) view.hideFixedBars()
             val finishedUrl = url ?: return
@@ -166,6 +178,8 @@ fun createBrowserWebView(
         override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
             url?.let { vm.onUrlChanged(tabId, it) }
             vm.onNavState(tabId, view.canGoBack(), view.canGoForward())
+            // 페이지를 새로 불러오지 않는 이동(SPA 의 history.back 등)은 여기서 복원한다.
+            if (!view.scrollMemory.loading) view.scrollMemory.restore(view, url)
         }
     }
 

@@ -3,6 +3,9 @@ package com.example.videodownloader.download
 import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.SystemClock
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -19,6 +22,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,8 +33,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okhttp3.OkHttpClient
+import java.io.EOFException
 import java.io.File
+import java.io.InterruptedIOException
+import java.net.SocketException
+import java.net.UnknownHostException
 import java.util.concurrent.ConcurrentHashMap
+import javax.net.ssl.SSLException
 
 data class NewDownload(
     val url: String,
@@ -69,6 +78,29 @@ class DownloadManager(
     val speeds: StateFlow<Map<Long, Long>> = _speeds.asStateFlow()
 
     val downloads: Flow<List<DownloadEntity>> = dao.observeAll()
+
+    /** 다운로드가 끝날 때마다 불린다(받은 파일, MIME). 자동 자막 만들기에 쓴다. */
+    var onCompleted: ((task: DownloadEntity, file: File, mimeType: String?) -> Unit)? = null
+
+    private val connectivity = context.getSystemService(ConnectivityManager::class.java)
+
+    /** Wi-Fi 연결 중에 끊긴 다운로드의 자동 재시도 횟수. Wi-Fi 에 새로 연결되면 초기화한다. */
+    private val autoRetries = ConcurrentHashMap<Long, Int>()
+
+    init {
+        // Wi-Fi 가 (다시) 연결되면 네트워크 문제로 멈춘 다운로드를 이어받는다.
+        val wifi = NetworkRequest.Builder()
+            .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            .build()
+        connectivity?.registerNetworkCallback(wifi, object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                autoRetries.clear()
+                resumeWaitingForWifi()
+            }
+        })
+    }
 
     fun recoverInterrupted() {
         scope.launch { dao.pauseInterrupted() }
@@ -110,9 +142,16 @@ class DownloadManager(
     }
 
     fun resume(id: Long) {
+        autoRetries.remove(id)
         scope.launch {
             dao.setStatus(id, DownloadStatus.QUEUED, null)
             kick()
+        }
+    }
+
+    private fun resumeWaitingForWifi() {
+        scope.launch {
+            if (dao.requeuePaused(WAITING_FOR_WIFI) > 0) kick()
         }
     }
 
@@ -123,6 +162,7 @@ class DownloadManager(
         if (deleteFile) {
             File(entity.filePath).delete()
             File(entity.filePath + Storage.PART).delete()
+            Storage.subtitleFor(File(entity.filePath)).delete()
             storage.tempDir(id).deleteRecursively()
         }
     }
@@ -164,7 +204,7 @@ class DownloadManager(
     private suspend fun run(task: DownloadEntity) {
         val current = settings.current()
         if (current.wifiOnly && isMeteredNetwork()) {
-            dao.setStatus(task.id, DownloadStatus.PAUSED, "Wi-Fi 전용 모드입니다. Wi-Fi 에 연결한 뒤 재개하세요.")
+            dao.setStatus(task.id, DownloadStatus.PAUSED, WAIT_WIFI_ONLY)
             return
         }
         dao.setStatus(task.id, DownloadStatus.RUNNING, null)
@@ -183,6 +223,8 @@ class DownloadManager(
                 mimeType = result.mimeType,
                 completedAt = System.currentTimeMillis(),
             )
+            autoRetries.remove(task.id)
+            onCompleted?.invoke(task, result.file, result.mimeType)
             if (current.notifyOnComplete) {
                 Notifications.showCompleted(context, task.id, result.file, result.mimeType, task.isPrivate)
             }
@@ -192,9 +234,54 @@ class DownloadManager(
             // 일시정지로 Call 이 끊기면 IOException 이 먼저 올라온다. 이 경우 상태를 덮어쓰지 않는다.
             currentCoroutineContext().ensureActive()
             Log.w(TAG, "다운로드 실패: ${task.url}", e)
+            if (isNetworkError(e) && waitForWifi(task.id)) return
             dao.setStatus(task.id, DownloadStatus.FAILED, e.message ?: e.javaClass.simpleName)
         }
     }
+
+    /**
+     * 네트워크 문제로 끊긴 다운로드를 "Wi-Fi 대기"로 일시정지한다. 받은 부분은 남아 있어 재개 시 이어받는다.
+     * Wi-Fi 가 아직 연결돼 있으면(순간 끊김·서버 쪽 끊김) 잠시 뒤 몇 번 다시 시도하고,
+     * 그래도 안 되면 false 를 돌려 실패로 처리하게 한다.
+     */
+    private suspend fun waitForWifi(id: Long): Boolean {
+        if (isWifiConnected()) {
+            val attempt = autoRetries.merge(id, 1, Int::plus) ?: 1
+            if (attempt > MAX_AUTO_RETRIES) {
+                autoRetries.remove(id)
+                return false
+            }
+            dao.setStatus(id, DownloadStatus.PAUSED, WAIT_DISCONNECTED)
+            scope.launch {
+                delay(RETRY_DELAY_MS * attempt)
+                // 그 사이 Wi-Fi 가 끊겼으면 모바일 데이터로 받지 않고 Wi-Fi 연결 콜백을 기다린다.
+                if (isWifiConnected()) resumeWaitingForWifi()
+            }
+        } else {
+            dao.setStatus(id, DownloadStatus.PAUSED, WAIT_DISCONNECTED)
+        }
+        return true
+    }
+
+    private fun isNetworkError(e: Throwable): Boolean {
+        if (!hasInternet()) return true
+        return generateSequence(e) { it.cause }.any {
+            it is SocketException || it is InterruptedIOException || it is UnknownHostException ||
+                it is SSLException || it is EOFException
+        }
+    }
+
+    private fun activeCapabilities(): NetworkCapabilities? =
+        connectivity?.let { it.getNetworkCapabilities(it.activeNetwork) }
+
+    private fun hasInternet(): Boolean =
+        activeCapabilities()?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+
+    private fun isWifiConnected(): Boolean =
+        activeCapabilities()?.let {
+            it.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) &&
+                it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        } == true
 
     private fun progressListener(id: Long): ProgressListener {
         val lock = Mutex()
@@ -217,11 +304,17 @@ class DownloadManager(
         }
     }
 
-    private fun isMeteredNetwork(): Boolean =
-        context.getSystemService(ConnectivityManager::class.java)?.isActiveNetworkMetered ?: false
+    private fun isMeteredNetwork(): Boolean = connectivity?.isActiveNetworkMetered ?: false
 
     private companion object {
         const val TAG = "DownloadManager"
         const val PROGRESS_INTERVAL_MS = 500L
+        const val MAX_AUTO_RETRIES = 3
+        const val RETRY_DELAY_MS = 5_000L
+
+        // 일시정지 사유. 아래 사유로 멈춘 항목만 Wi-Fi 연결 시 자동으로 재개한다(직접 일시정지한 항목은 제외).
+        const val WAIT_DISCONNECTED = "네트워크 연결이 끊겼습니다. Wi-Fi 에 연결되면 자동으로 이어받습니다."
+        const val WAIT_WIFI_ONLY = "Wi-Fi 전용 모드입니다. Wi-Fi 에 연결되면 자동으로 이어받습니다."
+        val WAITING_FOR_WIFI = listOf(WAIT_DISCONNECTED, WAIT_WIFI_ONLY)
     }
 }

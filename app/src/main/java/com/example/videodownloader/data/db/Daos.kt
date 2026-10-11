@@ -45,6 +45,10 @@ interface DownloadDao {
     @Query("UPDATE downloads SET filePath = :path, fileName = :name, isPrivate = :isPrivate WHERE id = :id")
     suspend fun updateLocation(id: Long, path: String, name: String, isPrivate: Boolean)
 
+    /** 사유(error)가 [reasons] 중 하나인 일시정지 항목을 대기열로 되돌린다. */
+    @Query("UPDATE downloads SET status = 'QUEUED', error = NULL WHERE status = 'PAUSED' AND error IN (:reasons)")
+    suspend fun requeuePaused(reasons: List<String>): Int
+
     @Query("UPDATE downloads SET status = 'PAUSED' WHERE status IN ('QUEUED', 'RUNNING')")
     suspend fun pauseInterrupted()
 }

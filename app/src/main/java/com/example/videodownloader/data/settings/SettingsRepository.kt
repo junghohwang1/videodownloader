@@ -40,6 +40,10 @@ data class AppSettings(
     val hideFixedBars: Boolean = true,
     /** 외국어 페이지를 열면 번역을 제안한다. */
     val offerTranslation: Boolean = true,
+    /** 유튜브 광고와 주요 광고 서버를 차단한다. */
+    val blockAds: Boolean = true,
+    /** 영상 다운로드가 끝나면 자동으로 자막을 만든다(음성 인식). */
+    val autoSubtitles: Boolean = false,
 )
 
 private val Context.settingsStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
@@ -56,6 +60,8 @@ class SettingsRepository(private val context: Context) {
         val PIN_SALT = stringPreferencesKey("pin_salt")
         val HIDE_FIXED_BARS = booleanPreferencesKey("hide_fixed_bars")
         val OFFER_TRANSLATION = booleanPreferencesKey("offer_translation")
+        val BLOCK_ADS = booleanPreferencesKey("block_ads")
+        val AUTO_SUBTITLES = booleanPreferencesKey("auto_subtitles")
     }
 
     private val store get() = context.settingsStore
@@ -74,6 +80,8 @@ class SettingsRepository(private val context: Context) {
                 pinSet = p[Keys.PIN_HASH] != null,
                 hideFixedBars = p[Keys.HIDE_FIXED_BARS] ?: true,
                 offerTranslation = p[Keys.OFFER_TRANSLATION] ?: true,
+                blockAds = p[Keys.BLOCK_ADS] ?: true,
+                autoSubtitles = p[Keys.AUTO_SUBTITLES] ?: false,
             )
         }
 
@@ -101,6 +109,14 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setOfferTranslation(value: Boolean) {
         store.edit { it[Keys.OFFER_TRANSLATION] = value }
+    }
+
+    suspend fun setAutoSubtitles(value: Boolean) {
+        store.edit { it[Keys.AUTO_SUBTITLES] = value }
+    }
+
+    suspend fun setBlockAds(value: Boolean) {
+        store.edit { it[Keys.BLOCK_ADS] = value }
     }
 
     suspend fun setSearchEngine(value: SearchEngine) {

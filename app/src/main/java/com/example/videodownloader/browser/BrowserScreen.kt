@@ -87,6 +87,7 @@ fun BrowserScreen(
     val currentTabId by vm.currentTabId.collectAsStateWithLifecycle()
     val tabInfos by vm.tabInfos.collectAsStateWithLifecycle()
     val hideFixedBars by vm.hideFixedBars.collectAsStateWithLifecycle()
+    val blockAds by vm.blockAds.collectAsStateWithLifecycle()
     val webView = tabs.get(currentTabId)
     val ui by vm.ui.collectAsStateWithLifecycle()
     val detected by vm.detected.collectAsStateWithLifecycle()
@@ -107,7 +108,7 @@ fun BrowserScreen(
     }
 
     fun goBack() {
-        if (ui.canGoBack) webView.goBack() else vm.showHome()
+        if (ui.canGoBack) webView.goBackRestoringScroll() else vm.showHome()
     }
 
     LaunchedEffect(Unit) {
@@ -139,6 +140,9 @@ fun BrowserScreen(
             }
         }
     }
+
+    // 설정에서 광고 차단을 바꾸면 보고 있는 탭에도 바로 적용한다(다음 페이지 로딩부터).
+    LaunchedEffect(currentTabId, blockAds) { AdBlock.setEnabled(webView, blockAds) }
 
     // 동적으로 바뀌는 플레이어·고정 메뉴를 위해 페이지를 보는 동안 주기적으로 다시 살핀다.
     LaunchedEffect(currentTabId, ui.showHome, ui.url, hideFixedBars) {
@@ -201,7 +205,7 @@ fun BrowserScreen(
                 if ((ui.canGoForward && !ui.showHome) || (ui.showHome && ui.hasPage)) {
                     DropdownMenuItem(text = { Text("앞으로") }, onClick = {
                         dismiss()
-                        if (ui.showHome) vm.showPage() else webView.goForward()
+                        if (ui.showHome) vm.showPage() else webView.goForwardRestoringScroll()
                     })
                 }
                 if (!ui.showHome) {

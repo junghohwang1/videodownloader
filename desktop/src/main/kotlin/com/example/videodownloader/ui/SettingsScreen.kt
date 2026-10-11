@@ -82,6 +82,12 @@ fun SettingsScreen(container: AppContainer) {
         SwitchRow("창을 닫으면 트레이로 내리기(다운로드 계속)", settings.minimizeToTray) { on ->
             container.settings.update { it.copy(minimizeToTray = on) }
         }
+        SwitchRow("광고 차단(광고 서버·광고 칸·유튜브 영상 광고)", settings.blockAds) { on ->
+            container.settings.update { it.copy(blockAds = on) }
+        }
+        SwitchRow("다운로드 후 자동으로 한국어 자막 만들기(음성 인식, 처음 한 번 약 200MB 받음)", settings.autoSubtitles) { on ->
+            container.settings.update { it.copy(autoSubtitles = on) }
+        }
 
         Section("ffmpeg (유튜브 영상·음성 합치기, HLS → MP4 변환)") {
             Text(

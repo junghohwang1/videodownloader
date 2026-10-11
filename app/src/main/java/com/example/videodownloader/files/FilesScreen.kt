@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.outlined.CloudDownload
+import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material3.Button
@@ -39,6 +40,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,6 +59,9 @@ import com.example.videodownloader.data.db.DownloadEntity
 import com.example.videodownloader.data.db.DownloadStatus
 import com.example.videodownloader.data.db.MediaKind
 import com.example.videodownloader.data.db.progressFraction
+import com.example.videodownloader.subtitle.SubtitleGenerator
+import com.example.videodownloader.util.FolderOpener
+import com.example.videodownloader.util.Storage
 import com.example.videodownloader.ui.common.ConfirmDialog
 import com.example.videodownloader.ui.common.EmptyState
 import com.example.videodownloader.ui.common.TextInputDialog
@@ -80,6 +85,14 @@ class FilesViewModel(private val container: AppContainer) : ViewModel() {
         manager.downloads.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val speeds: StateFlow<Map<Long, Long>> = manager.speeds
 
+    /** 자막을 만드는 중(대기 포함)인 항목. 완료·실패 메시지는 메인 화면에서 띄운다. */
+    val subtitleJobs: StateFlow<Map<Long, SubtitleGenerator.Progress>> = container.subtitles.jobs
+
+    fun makeSubtitles(item: DownloadEntity) =
+        container.subtitles.enqueue(item.id, File(item.filePath), item.fileName)
+
+    fun cancelSubtitles(item: DownloadEntity) = container.subtitles.cancel(item.id)
+
     private val _messages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val messages: SharedFlow<String> = _messages.asSharedFlow()
 
@@ -91,7 +104,7 @@ class FilesViewModel(private val container: AppContainer) : ViewModel() {
     fun moveToPrivate(item: DownloadEntity) =
         launchWithMessage("비공개 폴더로 옮겼습니다") { library.setPrivate(item, true) }
     fun exportToGallery(item: DownloadEntity) =
-        launchWithMessage("갤러리(VideoDownloader 폴더)에 저장했습니다") { library.exportToGallery(item) }
+        launchWithMessage("갤러리(VideoDownloader 폴더)로 옮겼습니다") { library.exportToGallery(item) }
 
     private fun launchWithMessage(success: String?, block: suspend () -> Unit) {
         viewModelScope.launch {
@@ -138,9 +151,22 @@ fun CompletedScreen(vm: FilesViewModel, snackbar: SnackbarHostState) {
     val completed = downloads.filter { it.status == DownloadStatus.COMPLETED && !it.isPrivate }
 
     LaunchedEffect(Unit) { vm.messages.collect { snackbar.showSnackbar(it) } }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     Column(Modifier.fillMaxSize()) {
-        TopAppBar(title = { Text("완료") })
+        TopAppBar(
+            title = { Text("완료") },
+            actions = {
+                // 받은 파일이 있는 폴더를 "내 파일" 앱으로 연다.
+                IconButton(onClick = {
+                    val dir = context.appContainer.storage.publicDir
+                    if (!FolderOpener.open(context, dir)) {
+                        scope.launch { snackbar.showSnackbar("파일 앱에서 열 수 없습니다. 저장 위치: ${dir.absolutePath}") }
+                    }
+                }) { Icon(Icons.Outlined.FolderOpen, "저장 폴더 열기") }
+            },
+        )
         if (completed.isEmpty()) {
             EmptyState(
                 Icons.Outlined.VideoLibrary,
@@ -235,38 +261,75 @@ private fun CompletedItem(item: DownloadEntity, vm: FilesViewModel) {
     var menuOpen by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    val subtitleJobs by vm.subtitleJobs.collectAsStateWithLifecycle()
+    val subtitleJob = subtitleJobs[item.id]
+    val playable = Storage.isPlayable(item.mimeType, item.fileName)
+    // 자막 작업이 끝나면 다시 확인하도록 작업 상태를 키로 둔다.
+    val hasSubtitle = remember(item.filePath, subtitleJob == null) {
+        Storage.subtitleFor(File(item.filePath)).exists()
+    }
 
-    MediaRow(
-        item = item,
-        onClick = { runCatching { library.open(context, item) } },
-        trailing = {
-            Box {
-                IconButton(onClick = { menuOpen = true }) { Icon(Icons.Default.MoreVert, "더보기") }
-                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    DropdownMenuItem(text = { Text("공유") }, onClick = {
-                        menuOpen = false
-                        runCatching { library.share(context, item) }
-                    })
-                    DropdownMenuItem(text = { Text("갤러리로 내보내기") }, onClick = {
-                        menuOpen = false
-                        vm.exportToGallery(item)
-                    })
-                    DropdownMenuItem(text = { Text("이름 변경") }, onClick = {
-                        menuOpen = false
-                        renaming = true
-                    })
-                    DropdownMenuItem(text = { Text("비공개 폴더로 이동") }, onClick = {
-                        menuOpen = false
-                        vm.moveToPrivate(item)
-                    })
-                    DropdownMenuItem(text = { Text("삭제") }, onClick = {
-                        menuOpen = false
-                        confirmDelete = true
-                    })
+    Column {
+        MediaRow(
+            item = item,
+            onClick = { runCatching { library.open(context, item) } },
+            extra = if (hasSubtitle) "자막" else null,
+            trailing = {
+                Box {
+                    IconButton(onClick = { menuOpen = true }) { Icon(Icons.Default.MoreVert, "더보기") }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        if (subtitleJob != null) {
+                            DropdownMenuItem(text = { Text("자막 만들기 취소") }, onClick = {
+                                menuOpen = false
+                                vm.cancelSubtitles(item)
+                            })
+                        } else if (playable) {
+                            DropdownMenuItem(text = { Text(if (hasSubtitle) "자막 다시 만들기" else "자막 만들기") }, onClick = {
+                                menuOpen = false
+                                vm.makeSubtitles(item)
+                            })
+                        }
+                        DropdownMenuItem(text = { Text("공유") }, onClick = {
+                            menuOpen = false
+                            runCatching { library.share(context, item) }
+                        })
+                        DropdownMenuItem(text = { Text("갤러리로 내보내기") }, onClick = {
+                            menuOpen = false
+                            vm.exportToGallery(item)
+                        })
+                        DropdownMenuItem(text = { Text("이름 변경") }, onClick = {
+                            menuOpen = false
+                            renaming = true
+                        })
+                        DropdownMenuItem(text = { Text("비공개 폴더로 이동") }, onClick = {
+                            menuOpen = false
+                            vm.moveToPrivate(item)
+                        })
+                        DropdownMenuItem(text = { Text("삭제") }, onClick = {
+                            menuOpen = false
+                            confirmDelete = true
+                        })
+                    }
                 }
+            },
+        )
+        subtitleJob?.let { job ->
+            Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)) {
+                val fraction = job.fraction
+                if (fraction != null) {
+                    LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
+                } else {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                }
+                Text(
+                    job.phase.label + (fraction?.let { " · ${(it * 100).toInt()}%" } ?: ""),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
             }
-        },
-    )
+        }
+    }
 
     if (renaming) {
         TextInputDialog(
@@ -290,7 +353,12 @@ private fun CompletedItem(item: DownloadEntity, vm: FilesViewModel) {
 
 /** 썸네일 + 이름 + 크기/날짜 한 줄. 파일 탭과 비공개 탭이 함께 쓴다. */
 @Composable
-fun MediaRow(item: DownloadEntity, onClick: () -> Unit, trailing: @Composable () -> Unit) {
+fun MediaRow(
+    item: DownloadEntity,
+    onClick: () -> Unit,
+    extra: String? = null,
+    trailing: @Composable () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -317,7 +385,8 @@ fun MediaRow(item: DownloadEntity, onClick: () -> Unit, trailing: @Composable ()
         Column(Modifier.weight(1f)) {
             Text(item.fileName, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(
-                "${formatBytes(item.totalBytes)} · ${formatDate(item.completedAt ?: item.createdAt)}",
+                listOfNotNull(formatBytes(item.totalBytes), formatDate(item.completedAt ?: item.createdAt), extra)
+                    .joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

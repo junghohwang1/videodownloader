@@ -20,10 +20,16 @@ import com.example.videodownloader.ui.App
 import com.example.videodownloader.ui.AppIcon
 import kotlin.system.exitProcess
 
-fun main() {
+fun main(args: Array<String>) {
     // 한글 파일명·경로가 깨지지 않도록 시작할 때 고정한다.
     System.setProperty("file.encoding", "UTF-8")
+    // 웹페이지(Chromium)는 OS 창이라 Compose 팝업(다운로드 버튼·메뉴)을 별도 창으로 띄워야 그 위에 보인다.
+    if (System.getProperty("compose.layers.type") == null) System.setProperty("compose.layers.type", "WINDOW")
+    // Direct3D 렌더러는 투명한 팝업 창(다운로드 버튼)을 그리다 충돌한다. OpenGL 로 그린다.
+    if (System.getProperty("skiko.renderApi") == null) System.setProperty("skiko.renderApi", "OPENGL")
     val container = AppContainer()
+    // VideoDownloader.exe <주소> 로 실행하면 내장 브라우저에서 그 주소를 연다.
+    args.firstOrNull { it.startsWith("http://") || it.startsWith("https://") }?.let(container.browser::openOnStart)
     Runtime.getRuntime().addShutdownHook(Thread { container.store.flush() })
 
     application {
