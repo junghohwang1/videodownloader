@@ -55,7 +55,13 @@ class AppContainer(context: Context) {
 
     val updater = AppUpdater(appContext, httpClient)
 
-    val subtitles = SubtitleGenerator(appContext, httpClient, appScope)
+    val subtitles = SubtitleGenerator(
+        context = appContext,
+        client = httpClient,
+        scope = appScope,
+        fastMode = { settings.current().fastSubtitles },
+        parallelMode = { settings.current().parallelSubtitles },
+    )
 
     init {
         // 설정에서 켜 두면 영상 다운로드가 끝나는 대로 자막을 만든다(유튜브 자막을 이미 받았으면 건너뛴다).

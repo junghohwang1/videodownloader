@@ -88,6 +88,9 @@ fun SettingsScreen(container: AppContainer) {
         SwitchRow("다운로드 후 자동으로 한국어 자막 만들기(음성 인식, 처음 한 번 약 200MB 받음)", settings.autoSubtitles) { on ->
             container.settings.update { it.copy(autoSubtitles = on) }
         }
+        SwitchRow("빠른 자막 만들기(1.5배속, 말이 빠른 영상은 조금 덜 정확할 수 있음. 말 없는 구간은 늘 건너뜀)", settings.fastSubtitles) { on ->
+            container.settings.update { it.copy(fastSubtitles = on) }
+        }
 
         Section("ffmpeg (유튜브 영상·음성 합치기, HLS → MP4 변환)") {
             Text(

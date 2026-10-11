@@ -66,14 +66,10 @@ class AdBlocker(
     }
 
     /**
-     * 페이지를 불러오기 시작할 때(문서가 만들어진 직후) 넣을 스크립트. 유튜브만 해당.
-     * 플레이어 정보(ytInitialPlayerResponse, /youtubei/v1/player 응답)에서 광고 항목을 지워 영상 광고가 아예 붙지 않게 한다.
+     * 모든 페이지에서 문서가 만들어질 때(페이지 스크립트보다 먼저) 실행할 스크립트. 새 탭을 만들 때 등록한다.
+     * 유튜브 플레이어 정보(ytInitialPlayerResponse, /youtubei/v1/player 응답)에서 광고 항목을 지워 영상 광고가 아예 붙지 않게 한다.
      */
-    fun earlyScript(url: String): String? {
-        if (!enabled()) return null
-        val host = url.toHttpUrlOrNull()?.host ?: return null
-        return if (isYouTubeHost(host)) YOUTUBE_PRUNE_JS else null
-    }
+    fun earlyScripts(): List<String> = if (enabled()) listOf(YOUTUBE_PRUNE_JS) else emptyList()
 
     /** 페이지 로딩이 끝나면 넣을 스크립트. 광고 차단이 꺼져 있으면 null. */
     fun pageScript(url: String): String? {
@@ -137,6 +133,7 @@ class AdBlocker(
         private const val YOUTUBE_PRUNE_JS = """
 (function(){
   if(window.__vdYtPrune) return; window.__vdYtPrune=true;
+  if(!/(^|\.)youtube\.com$/.test(location.hostname)) return;
   var KEYS=['adPlacements','playerAds','adSlots','adBreakHeartbeatParams'];
   function prune(o){
     try{

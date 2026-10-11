@@ -4,8 +4,10 @@ import com.example.videodownloader.data.MediaKind
 import com.example.videodownloader.download.DownloadOption
 import com.example.videodownloader.download.UrlAnalyzer
 import com.example.videodownloader.youtube.YouTubeSupport
-import dev.datlag.kcef.KCEFBrowser
-import dev.datlag.kcef.KCEFClient
+import com.example.videodownloader.webview2.WebView2Host
+import com.example.videodownloader.webview2.WebView2Listener
+import com.example.videodownloader.webview2.WebView2View
+import com.sun.jna.platform.win32.WinDef
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -20,9 +22,6 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import org.cef.browser.CefRendering
-import org.cef.callback.CefContextMenuParams
-import java.awt.Component
 
 /** 브라우저에서 감지한 미디어 후보. [options] 는 조회가 끝나면 채워진다. */
 data class DetectedMedia(
@@ -49,16 +48,13 @@ data class BrowserUi(
     /** 아직 페이지를 열지 않았거나 홈 버튼을 누른 상태(북마크 화면). */
     val showHome: Boolean = true,
     val fullscreen: Boolean = false,
-    /** 페이지 영상이 내장 브라우저가 못 푸는 형식(H.264/AAC)이라 재생되지 않는 상태. */
-    val unsupportedVideo: Boolean = false,
 )
 
 /**
  * 브라우저 탭 하나. 페이지 조작과, 페이지에서 받을 수 있는 영상 찾기를 맡는다(Android 판 BrowserViewModel 과 같은 규칙).
  * - 유튜브 영상 페이지: 주소가 바뀔 때마다 영상 ID 를 보고 화질 목록을 조회
  * - 그 밖의 사이트: 네트워크 요청 중 mp4/webm/m3u8… 주소, 페이지의 <video> 요소를 주기적으로 검사
- * - 우클릭 메뉴: 영상 링크(유튜브 썸네일 등) 위에서 "이 영상 다운로드"
- * CEF 이벤트는 [BrowserTabs] 가 받아 해당 탭의 on… 함수로 넘긴다.
+ * 웹페이지는 Edge WebView2 웹뷰([WebView2View])로 그리고, 웹뷰 이벤트는 [BrowserTabs] 가 받아 이 탭의 on… 함수로 넘긴다.
  */
 class BrowserController(
     val id: Long,
@@ -79,25 +75,32 @@ class BrowserController(
     /** 우클릭 메뉴로 고른 영상. 다운로드 창을 바로 연다. */
     val pending: StateFlow<DetectedMedia?> = _pending.asStateFlow()
 
-    private var browser: KCEFBrowser? = null
+    private var view: WebView2View? = null
     private var youtubeId: String? = null
     private var scanJob: Job? = null
 
-    /** 웹페이지를 그리는 AWT 컴포넌트. [create] 후에 채워진다. */
-    var component: Component? = null
-        private set
-
-    /** CEF 이벤트가 어느 탭 것인지 가리는 데 쓴다. */
-    val browserIdentifier: Int? get() = browser?.identifier
-
-    /** 브라우저를 만든다. [url] 이 null 이면 홈(북마크) 화면으로 시작한다. */
-    fun create(client: KCEFClient, url: String?) {
-        if (browser != null) return
+    /**
+     * 부모 창 [parent] 안에 웹뷰를 만든다. [url] 이 null 이면 홈(북마크) 화면으로 시작한다.
+     * [listener] 는 웹뷰 이벤트를 받아 이 탭의 on… 함수로 넘기는 [BrowserTabs] 의 처리기다.
+     */
+    fun create(host: WebView2Host, parent: WinDef.HWND, url: String?, scripts: List<String>, listener: WebView2Listener) {
+        if (view != null) return
         if (url != null) _ui.update { it.copy(url = url, showHome = false) }
-        browser = client.createBrowser(url ?: KCEFBrowser.BLANK_URI, CefRendering.DEFAULT, false)
-            .also { component = it.uiComponent }
+        view = WebView2View(host, listener).also { it.create(parent, url, scripts) }
         startScanning()
     }
+
+    /** 웹뷰 크기(물리 픽셀)와 표시 여부. 보고 있는 탭만 보이게 한다. */
+    internal fun setBounds(width: Int, height: Int) = view?.setBounds(width, height)
+
+    internal fun setVisible(visible: Boolean) = view?.setVisible(visible)
+
+    internal fun notifyParentMoved() = view?.notifyParentMoved()
+
+    internal fun executeScript(script: String) = view?.executeScript(script)
+
+    /** 다운로드할 때 보낼 이 사이트의 쿠키. */
+    fun cookieHeader(url: String): String? = view?.cookieHeader(url)
 
     fun resolveInput(input: String): String {
         val text = input.trim()
@@ -110,32 +113,30 @@ class BrowserController(
         if (input.isBlank()) return
         val url = resolveInput(input)
         _ui.update { it.copy(showHome = false, url = url) }
-        browser?.loadURL(url)
+        view?.navigate(url)
     }
 
     fun goBack() {
-        val b = browser
-        if (!_ui.value.showHome && b != null && b.canGoBack()) b.goBack() else showHome()
+        val ui = _ui.value
+        if (!ui.showHome && ui.canGoBack) view?.goBack() else showHome()
     }
 
     fun goForward() {
-        if (_ui.value.showHome && _ui.value.url.isNotBlank() && _ui.value.url != KCEFBrowser.BLANK_URI) {
+        if (_ui.value.showHome && _ui.value.url.isNotBlank()) {
             _ui.update { it.copy(showHome = false) }
         } else {
-            browser?.goForward()
+            view?.goForward()
         }
     }
 
     fun reloadOrStop() {
-        val b = browser ?: return
-        if (_ui.value.loading) b.stopLoad() else b.reload()
+        val v = view ?: return
+        if (_ui.value.loading) v.stop() else v.reload()
     }
 
     fun showHome() = _ui.update { it.copy(showHome = true) }
 
     fun showPage() = _ui.update { it.copy(showHome = false) }
-
-    fun dismissUnsupportedVideo() = _ui.update { it.copy(unsupportedVideo = false) }
 
     fun dismissPending() {
         _pending.value = null
@@ -151,15 +152,14 @@ class BrowserController(
 
     fun dispose() {
         scanJob?.cancel()
-        browser?.dispose()
-        browser = null
-        component = null
+        view?.close()
+        view = null
     }
 
-    // ---- CEF 이벤트(BrowserTabs 가 넘겨 준다) ----
+    // ---- 웹뷰 이벤트(BrowserTabs 가 넘겨 준다) ----
 
     internal fun onAddressChange(url: String) {
-        if (url == KCEFBrowser.BLANK_URI) return
+        if (url == "about:blank") return
         _ui.update { it.copy(url = url, showHome = false) }
         checkYouTube(url)
     }
@@ -191,10 +191,17 @@ class BrowserController(
         classifyUrl(url)?.let { kind -> addMedia(url, kind) }
     }
 
-    internal fun canDownload(params: CefContextMenuParams?): Boolean = downloadTarget(params) != null
-
-    internal fun downloadFromContextMenu(params: CefContextMenuParams?) {
-        downloadTarget(params)?.let(::requestDownload)
+    /** 우클릭한 곳이 받을 수 있는 영상(링크)이면 그 주소. 메뉴에 "이 영상 다운로드"를 붙일지 정한다. */
+    internal fun downloadTarget(link: String?, source: String?): String? {
+        val l = link?.takeIf { it.isNotBlank() }
+        val media = source?.takeIf { it.isNotBlank() && !it.startsWith("blob:") && classifyUrl(it) != null }
+        return when {
+            l != null && (YouTubeSupport.videoId(l) != null || classifyUrl(l) != null) -> l
+            media != null -> media
+            // 유튜브 영상 화면의 플레이어 위에서 우클릭
+            YouTubeSupport.videoId(_ui.value.url) != null && l == null -> _ui.value.url
+            else -> null
+        }
     }
 
     // ---- 감지 ----
@@ -203,18 +210,16 @@ class BrowserController(
         scanJob?.cancel()
         // 동적으로 바뀌는 플레이어를 위해 페이지를 보는 동안 주기적으로 <video> 요소를 다시 살핀다.
         scanJob = scope.launch(Dispatchers.IO) {
-            var stuckChecks = 0
             while (isActive) {
                 delay(3_000)
-                val b = browser ?: continue
+                val v = view ?: continue
                 if (_ui.value.showHome || isYouTube(_ui.value.url)) continue
-                // 두 번 연속(약 6초) 재생 불가 상태면 안내를 띄운다.
-                val stuck = runCatching { b.evaluateJavaScript(STUCK_VIDEO_JS) }.getOrNull()?.contains("stuck") == true
-                stuckChecks = if (stuck) stuckChecks + 1 else 0
-                if (stuckChecks == 2) _ui.update { it.copy(unsupportedVideo = true) }
-                val result = runCatching { b.evaluateJavaScript(SCAN_VIDEO_JS) }.getOrNull() ?: continue
-                val urls = runCatching { Json.parseToJsonElement(result).jsonArray.map { it.jsonPrimitive.content } }
-                    .getOrDefault(emptyList())
+                // 결과는 JSON 으로 한 번 더 감싸여 온다("[\"…\"]" 문자열).
+                val json = runCatching { v.executeScriptBlocking(SCAN_VIDEO_JS) }.getOrNull() ?: continue
+                val urls = runCatching {
+                    val inner = Json.parseToJsonElement(json).jsonPrimitive.content
+                    Json.parseToJsonElement(inner).jsonArray.map { it.jsonPrimitive.content }
+                }.getOrDefault(emptyList())
                 urls.distinct().forEach { url ->
                     if (!url.startsWith("http://") && !url.startsWith("https://")) return@forEach
                     addMedia(url, classifyUrl(url) ?: MediaKind.FILE)
@@ -224,7 +229,6 @@ class BrowserController(
     }
 
     private fun onPageStarted(url: String) {
-        _ui.update { it.copy(unsupportedVideo = false) }
         detectedAll.value = emptyList()
         youtubeId = null
         checkYouTube(url)
@@ -296,7 +300,7 @@ class BrowserController(
     }
 
     /** 우클릭한 링크(또는 현재 유튜브 영상)를 다운로드 창으로 연다. */
-    private fun requestDownload(url: String) {
+    internal fun requestDownload(url: String) {
         val ui = _ui.value
         val id = YouTubeSupport.videoId(url)
         val media = if (id != null) {
@@ -309,17 +313,6 @@ class BrowserController(
         if (!media.probed) probe(media) { _pending.value?.url == media.url }
     }
 
-    private fun downloadTarget(params: CefContextMenuParams?): String? {
-        val link = params?.linkUrl?.takeIf { it.isNotBlank() }
-        val media = params?.sourceUrl?.takeIf { it.isNotBlank() && !it.startsWith("blob:") && classifyUrl(it) != null }
-        return when {
-            link != null && (YouTubeSupport.videoId(link) != null || classifyUrl(link) != null) -> link
-            media != null -> media
-            // 유튜브 영상 화면의 플레이어 위에서 우클릭
-            YouTubeSupport.videoId(_ui.value.url) != null && link == null -> _ui.value.url
-            else -> null
-        }
-    }
 
     companion object {
         private const val MAX_DETECTED = 50
@@ -342,31 +335,9 @@ class BrowserController(
             return host == "youtube.com" || host.endsWith(".youtube.com") || host == "youtu.be"
         }
 
-        /**
-         * 내장 Chromium 은 라이선스 문제로 H.264/AAC 코덱이 없다. 그런 영상(대개 HLS·MP4)은 데이터를 하나도 못 읽고
-         * 계속 로딩 상태로 남으므로, 코덱이 없는데 영상이 준비되지 않았거나 형식 오류가 나면 "stuck" 을 돌려준다.
-         */
-        private const val STUCK_VIDEO_JS = """
-return (function(){
-  var h264=false;
-  try{ h264=!!(window.MediaSource&&MediaSource.isTypeSupported('video/mp4; codecs="avc1.42E01E"')); }catch(e){}
-  if(h264) return 'ok';
-  var vs=document.querySelectorAll('video');
-  for(var i=0;i<vs.length;i++){
-    var v=vs[i], s=v.currentSrc||v.src||'';
-    if(v.error&&v.error.code>=3) return 'stuck';
-    if(v.readyState===0&&s){
-      if(s.indexOf('blob:')===0){ if(!v.paused) return 'stuck'; }
-      else if(/m3u8|\.mp4|\/hls\//i.test(s)) return 'stuck';
-    }
-  }
-  return 'ok';
-})()
-"""
-
         /** 페이지 안의 <video>/<source> 주소를 모은다. blob: 주소(MSE 스트리밍)는 받을 수 없어 제외한다. */
         private const val SCAN_VIDEO_JS = """
-return (function(){
+(function(){
   var out=[];
   var vs=document.querySelectorAll('video');
   for(var i=0;i<vs.length;i++){

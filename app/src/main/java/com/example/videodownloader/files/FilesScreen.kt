@@ -322,7 +322,8 @@ private fun CompletedItem(item: DownloadEntity, vm: FilesViewModel) {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 }
                 Text(
-                    job.phase.label + (fraction?.let { " · ${(it * 100).toInt()}%" } ?: ""),
+                    listOfNotNull(job.phase.label, fraction?.let { "${(it * 100).toInt()}%" }, job.detail)
+                        .joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp),

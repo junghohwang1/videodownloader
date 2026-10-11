@@ -25,7 +25,7 @@ Android 빌드와 분리된 독립 Gradle 프로젝트라 Android SDK 없이 빌
 | MediaMuxer / Media3 Transformer | ffmpeg(`-c copy`, 재인코딩 없음). 처음 필요할 때 자동으로 `%LOCALAPPDATA%\VideoDownloader\ffmpeg` 에 내려받음(약 110MB, 한 번만). PATH 에 있으면 그것을 씀 |
 | ExoPlayer | Windows 기본 플레이어로 열기 |
 | 포그라운드 서비스·알림 | 트레이 아이콘·트레이 알림 |
-| WebView | Chromium(JCEF, KCEF). 첫 실행 때 구성 요소를 `%LOCALAPPDATA%\VideoDownloader\kcef-bundle` 에 한 번만 내려받음(설치 후 약 575MB) |
+| WebView | Windows 기본 **Microsoft Edge WebView2** 를 JNA(COM)로 직접 띄움(`webview2/`). H.264/AAC 영상 재생 가능, 따로 내려받는 구성 요소 없음. 쿠키·캐시는 `%LOCALAPPDATA%\VideoDownloader\webview2-data`. WebView2 런타임이 없는 PC 는 안내 문구와 설치 링크를 보여 줌 |
 | 하단 시트 | 별도 창(웹페이지가 OS 창이라 그 위에 그리려면 창이어야 함). 같은 이유로 다운로드 버튼도 작은 팝업 창 |
 
 ## 빌드
@@ -54,8 +54,9 @@ MSI(WiX)는 코드페이지 1252 라 설치 메타데이터(설명·시작 메�
 ## 구현 메모
 
 - Skia 의 Direct3D 렌더러는 투명 팝업 창(다운로드 버튼)을 그리다 충돌해서 `skiko.renderApi=OPENGL` 로 고정했다.
-- `compose.layers.type=WINDOW`: 팝업·메뉴를 별도 창으로 띄워 Chromium 창 위에 보이게 한다.
-- KCEF 기본 설정은 하위 프로세스 경로가 실행 중인 JDK 를 가리켜 Chromium 이 바로 종료된다. 번들 경로(`jcef_helper.exe`, `locales`)를 직접 지정한다.
+- `compose.layers.type=WINDOW`: 팝업·메뉴를 별도 창으로 띄워 웹페이지(WebView2) 창 위에 보이게 한다.
+- WebView2 는 만든 스레드(STA)에서만 다룰 수 있어 메시지 루프를 도는 전용 스레드(`WebView2Host`)에서 모든 호출을 처리한다. vtable 순서는 SDK `WebView2.h`(1.0.4191.47) 기준이며, 환경 생성용 `WebView2Loader.dll`(Microsoft BSD 라이선스)을 리소스에 넣어 두었다.
+- 탭마다 웹뷰가 하나씩이고 모두 같은 부모 창(Canvas) 안에 겹쳐 두며, 보고 있는 탭만 보이게 한다.
 
 ## 이용 안내
 

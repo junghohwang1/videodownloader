@@ -130,7 +130,13 @@ fun main(args: Array<String>) {
             title = "동영상 다운로더",
             icon = icon,
         ) {
-            LaunchedEffect(Unit) { composeWindow = window }
+            LaunchedEffect(Unit) {
+                composeWindow = window
+                // 창을 옮기면 웹페이지의 드롭다운 등 팝업 위치를 맞춘다.
+                window.addComponentListener(object : java.awt.event.ComponentAdapter() {
+                    override fun componentMoved(e: java.awt.event.ComponentEvent) = container.browser.notifyWindowMoved()
+                })
+            }
             App(container)
         }
     }

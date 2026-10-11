@@ -14,12 +14,18 @@ android {
         applicationId = "com.example.videodownloader"
         minSdk = 29
         targetSdk = 37
-        versionCode = 3
-        versionName = "1.1.0"
+        versionCode = 4
+        versionName = "1.1.1"
 
-        // 자막 만들기(whisper.cpp)용 네이티브 라이브러리. 휴대폰(arm64)과 에뮬레이터(x86_64)만 넣는다.
+        // 자막 만들기(whisper.cpp)용 네이티브 라이브러리. 휴대폰(arm64)만 넣는다.
         ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            abiFilters += listOf("arm64-v8a")
+        }
+        externalNativeBuild {
+            cmake {
+                // whisper·ggml·CPU 계산부가 여러 .so 로 나뉘므로 C++ 표준 라이브러리를 함께 쓴다.
+                arguments += listOf("-DANDROID_STL=c++_shared")
+            }
         }
     }
 
@@ -27,6 +33,13 @@ android {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")
             version = "3.22.1"
+        }
+    }
+
+    packaging {
+        jniLibs {
+            // CPU 계산부(libggml-cpu-*.so)를 실행 중에 폴더에서 찾아 불러오므로 설치 때 풀어 둔다.
+            useLegacyPackaging = true
         }
     }
 

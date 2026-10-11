@@ -19,6 +19,16 @@ object Srt {
             if (body.isEmpty()) null else Cue(seconds(m[1], m[2], m[3], m[4]), seconds(m[5], m[6], m[7], m[8]), body)
         }
 
+    /**
+     * 자막이 다음 말이 나올 때까지(무음 건너뛰기로 지운 긴 무음 동안) 계속 떠 있지 않도록,
+     * 글자 수에 맞는 길이(최소 2초, 최대 12초)를 넘으면 자르고, 다음 자막과 겹치지 않게 한다.
+     */
+    fun tidy(cues: List<Cue>): List<Cue> = cues.mapIndexed { i, cue ->
+        val readable = (2.0 + cue.text.length * 0.1).coerceAtMost(12.0)
+        val next = cues.getOrNull(i + 1)?.start ?: Double.MAX_VALUE
+        cue.copy(end = minOf(cue.end, cue.start + readable, maxOf(next, cue.start + 0.5)))
+    }
+
     fun write(cues: List<Cue>): String = buildString {
         cues.forEachIndexed { i, cue ->
             append(i + 1).append('\n')
