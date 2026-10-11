@@ -1,11 +1,15 @@
 package com.example.videodownloader
 
 import android.content.Context
+import com.example.videodownloader.browser.AdBlock
 import com.example.videodownloader.browser.TabStore
 import com.example.videodownloader.data.db.AppDatabase
 import com.example.videodownloader.data.settings.SettingsRepository
 import com.example.videodownloader.download.DownloadManager
 import com.example.videodownloader.files.LibraryActions
+import com.example.videodownloader.subtitle.SubtitleGenerator
+import com.example.videodownloader.update.AppUpdater
+import kotlinx.coroutines.launch
 import com.example.videodownloader.util.Storage
 import com.example.videodownloader.youtube.YouTubeSupport
 import kotlinx.coroutines.CoroutineScope
@@ -35,6 +39,7 @@ class AppContainer(context: Context) {
 
     init {
         YouTubeSupport.init(httpClient)
+        AdBlock.init(appContext, httpClient, appScope)
     }
 
     val downloadManager = DownloadManager(
@@ -47,4 +52,20 @@ class AppContainer(context: Context) {
     )
 
     val library = LibraryActions(database.downloadDao(), storage, downloadManager)
+
+    val updater = AppUpdater(appContext, httpClient)
+
+    val subtitles = SubtitleGenerator(appContext, httpClient, appScope)
+
+    init {
+        // 설정에서 켜 두면 영상 다운로드가 끝나는 대로 자막을 만든다(유튜브 자막을 이미 받았으면 건너뛴다).
+        downloadManager.onCompleted = { task, file, mimeType ->
+            appScope.launch {
+                val isVideo = (mimeType ?: Storage.guessMime(file.name)).startsWith("video/")
+                if (isVideo && settings.current().autoSubtitles && !Storage.subtitleFor(file).exists()) {
+                    subtitles.enqueue(task.id, file, task.title, auto = true)
+                }
+            }
+        }
+    }
 }

@@ -16,6 +16,18 @@ android {
         targetSdk = 37
         versionCode = 2
         versionName = "1.0.1"
+
+        // 자막 만들기(whisper.cpp)용 네이티브 라이브러리. 휴대폰(arm64)과 에뮬레이터(x86_64)만 넣는다.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     signingConfigs {
@@ -93,10 +105,14 @@ dependencies {
     implementation(libs.androidx.media3.transformer)
 
     implementation(libs.okhttp)
+    // 유튜브 광고 차단 스크립트를 문서 시작 시점에 넣기 위해
+    implementation(libs.androidx.webkit)
     implementation(libs.coil.compose)
     implementation(libs.coil.video)
 
     implementation(libs.newpipe.extractor)
+    // 한국어 자막이 없는 유튜브 영상의 자막을 기기 안에서 한국어로 번역
+    implementation(libs.mlkit.translate)
     coreLibraryDesugaring(libs.android.desugar)
 
     testImplementation(libs.junit)

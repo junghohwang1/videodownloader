@@ -15,6 +15,7 @@ import org.schabi.newpipe.extractor.stream.AudioTrackType
 import org.schabi.newpipe.extractor.stream.DeliveryMethod
 import org.schabi.newpipe.extractor.stream.Stream
 import org.schabi.newpipe.extractor.stream.StreamInfo
+import org.schabi.newpipe.extractor.stream.SubtitlesStream
 import org.schabi.newpipe.extractor.stream.VideoStream
 import java.io.IOException
 
@@ -38,7 +39,11 @@ data class YtVideo(
 /** 실제로 받을 스트림 주소와(알면) 크기. */
 data class YtStreamRef(val url: String, val contentLength: Long)
 
-data class YtStreams(val video: YtStreamRef?, val audio: YtStreamRef?) {
+data class YtStreams(
+    val video: YtStreamRef?,
+    val audio: YtStreamRef?,
+    val subtitles: List<SubtitlesStream> = emptyList(),
+) {
     val isAudioOnly: Boolean get() = video == null
 }
 
@@ -146,7 +151,7 @@ object YouTubeSupport {
             val stream = info.videoStreams.firstOrNull { it.itag == itag && it.isDownloadable() }
                 ?: info.videoStreams.filter { it.isDownloadable() && it.format == MediaFormat.MPEG_4 }.maxByOrNull { it.height }
                 ?: throw IOException("선택한 화질을 더 이상 받을 수 없습니다")
-            return@withContext YtStreams(YtStreamRef(stream.content, stream.length()), null)
+            return@withContext YtStreams(YtStreamRef(stream.content, stream.length()), null, info.subtitles)
         }
         val audio = info.audioStreams.firstOrNull { it.itag == spec.audioItag && it.isDownloadable() }
             ?: bestAudio(info.audioStreams)
@@ -155,7 +160,7 @@ object YouTubeSupport {
             info.videoOnlyStreams.firstOrNull { it.itag == itag && it.isDownloadable() }
                 ?: throw IOException("선택한 화질을 더 이상 받을 수 없습니다")
         }
-        YtStreams(video?.let { YtStreamRef(it.content, it.length()) }, YtStreamRef(audio.content, audio.length()))
+        YtStreams(video?.let { YtStreamRef(it.content, it.length()) }, YtStreamRef(audio.content, audio.length()), info.subtitles)
     }
 
     /** 스트림 주소를 받은 클라이언트 종류에 맞는 헤더. 맞지 않으면 403 이 나거나 속도가 크게 제한된다. */

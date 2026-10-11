@@ -2,8 +2,13 @@ package com.example.videodownloader.download
 
 import com.example.videodownloader.data.db.DownloadEntity
 import com.example.videodownloader.util.Storage
+import android.util.Log
+import com.example.videodownloader.youtube.SubtitleTranslator
+import com.example.videodownloader.youtube.YouTubeSubtitles
 import com.example.videodownloader.youtube.YouTubeSupport
 import com.example.videodownloader.youtube.YtSpec
+import com.example.videodownloader.youtube.YtStreams
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -62,7 +67,32 @@ class YouTubeDownloader(
             }
         }
         tempDir.deleteRecursively()
+        if (streams.video != null) saveKoreanSubtitles(streams, result.file)
         return result
+    }
+
+    /** 한국어 자막(없으면 다른 언어 자막을 기기에서 번역)을 영상 옆에 저장한다. 실패해도 다운로드는 완료로 둔다. */
+    private suspend fun saveKoreanSubtitles(streams: YtStreams, video: File) {
+        try {
+            val fetched = YouTubeSubtitles.fetch(client, streams.subtitles) ?: return
+            val cues = if (fetched.isKorean) {
+                fetched.cues
+            } else {
+                // 번역할 수 없으면 원래 언어 자막이라도 남긴다.
+                runCatching { SubtitleTranslator.toKorean(fetched) }
+                    .onFailure { Log.w(TAG, "자막 번역 실패", it) }
+                    .getOrNull() ?: fetched.cues
+            }
+            withContext(Dispatchers.IO) { Storage.subtitleFor(video).writeText(YouTubeSubtitles.toSrt(cues)) }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "자막 받기 실패", e)
+        }
+    }
+
+    private companion object {
+        const val TAG = "YouTubeDownloader"
     }
 
     private fun moveInto(src: File, dst: File): File {

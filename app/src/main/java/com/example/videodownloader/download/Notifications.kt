@@ -22,6 +22,7 @@ object Notifications {
     private const val CHANNEL_PROGRESS = "downloads"
     private const val CHANNEL_COMPLETED = "completed"
     const val ID_PROGRESS = 1001
+    const val ID_SUBTITLE = 1002
 
     fun createChannels(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java)

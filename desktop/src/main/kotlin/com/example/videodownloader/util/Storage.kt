@@ -50,6 +50,9 @@ class Storage(private val settings: SettingsRepository? = null) {
 
     companion object {
         const val PART = ".part"
+
+        /** 영상과 같은 이름의 자막 파일(영상.srt). 동영상 플레이어들이 자동으로 붙여 보여 준다. */
+        fun subtitleFor(video: File): File = File(video.parentFile, video.nameWithoutExtension + ".srt")
         const val EXPORT_FOLDER = "VideoDownloader"
         private val ILLEGAL = Regex("[\\\\/:*?\"<>|\\p{Cntrl}]")
         private val SPACES = Regex("\\s+")

@@ -45,7 +45,20 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.videodownloader.AppContainer
 import com.example.videodownloader.data.DownloadEntity
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.TooltipArea
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Surface
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import com.example.videodownloader.subtitle.SubtitleGenerator
 import com.example.videodownloader.util.DesktopActions
+import com.example.videodownloader.util.Storage
 import com.example.videodownloader.util.formatBytes
 import com.example.videodownloader.util.formatDate
 import kotlinx.coroutines.launch
@@ -58,6 +71,10 @@ fun LibraryScreen(container: AppContainer, completed: List<DownloadEntity>) {
     var deleting by remember { mutableStateOf<DownloadEntity?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    val subtitleJobs by container.subtitles.jobs.collectAsState()
+    var notice by remember { mutableStateOf<String?>(null) }
+    // 자막 만들기 완료·실패 안내
+    LaunchedEffect(Unit) { container.subtitles.messages.collect { notice = it } }
     val shown = completed
         .filter { query.isBlank() || it.fileName.contains(query, ignoreCase = true) || it.title.contains(query, ignoreCase = true) }
         .sortedByDescending { it.completedAt ?: it.createdAt }
@@ -81,6 +98,7 @@ fun LibraryScreen(container: AppContainer, completed: List<DownloadEntity>) {
             }
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp)) }
+        notice?.let { Text(it, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 8.dp)) }
         Spacer(Modifier.size(12.dp))
         if (shown.isEmpty()) {
             Text(
@@ -91,9 +109,17 @@ fun LibraryScreen(container: AppContainer, completed: List<DownloadEntity>) {
         LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
             items(shown, key = { it.id }) { item ->
                 val file = File(item.filePath)
+                val subtitleJob = subtitleJobs[item.id]
+                val hasSubtitle = remember(item.filePath, subtitleJob == null) { Storage.subtitleFor(file).exists() }
+                val makeSubtitles = { container.subtitles.enqueue(item.id, file, item.fileName) }
                 ContextMenuArea(items = {
                     listOf(
                         ContextMenuItem("열기") { open(file) { error = it } },
+                        if (subtitleJob == null) {
+                            ContextMenuItem(if (hasSubtitle) "자막 다시 만들기" else "자막 만들기") { makeSubtitles() }
+                        } else {
+                            ContextMenuItem("자막 만들기 취소") { container.subtitles.cancel(item.id) }
+                        },
                         ContextMenuItem("폴더에서 보기") { DesktopActions.showInFolder(file) },
                         ContextMenuItem("이름 바꾸기") { renaming = item },
                         ContextMenuItem("원본 주소 열기") { DesktopActions.browse(item.pageUrl ?: item.url) },
@@ -103,6 +129,9 @@ fun LibraryScreen(container: AppContainer, completed: List<DownloadEntity>) {
                     LibraryRow(
                         item = item,
                         exists = file.exists(),
+                        hasSubtitle = hasSubtitle,
+                        subtitleJob = subtitleJob,
+                        onSubtitles = { if (subtitleJob == null) makeSubtitles() else container.subtitles.cancel(item.id) },
                         onOpen = { open(file) { error = it } },
                         onShow = { DesktopActions.showInFolder(file) },
                         onRename = { renaming = item },
@@ -164,6 +193,9 @@ private fun open(file: File, onError: (String) -> Unit) {
 private fun LibraryRow(
     item: DownloadEntity,
     exists: Boolean,
+    hasSubtitle: Boolean,
+    subtitleJob: SubtitleGenerator.Progress?,
+    onSubtitles: () -> Unit,
     onOpen: () -> Unit,
     onShow: () -> Unit,
     onRename: () -> Unit,
@@ -186,15 +218,70 @@ private fun LibraryRow(
                 listOfNotNull(
                     formatBytes(item.totalBytes),
                     item.completedAt?.let(::formatDate),
+                    if (hasSubtitle) "자막" else null,
                     if (!exists) "파일 없음" else null,
                 ).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
                 color = if (exists) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error,
             )
+            subtitleJob?.let { job ->
+                val fraction = job.fraction
+                if (fraction != null) {
+                    LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
+                } else {
+                    LinearProgressIndicator(Modifier.fillMaxWidth().padding(top = 6.dp))
+                }
+                Text(
+                    job.label + (fraction?.let { " · ${(it * 100).toInt()}%" } ?: ""),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
-        IconButton(onClick = onOpen, enabled = exists) { Icon(Icons.AutoMirrored.Filled.OpenInNew, "열기") }
-        IconButton(onClick = onShow) { Icon(Icons.Filled.FolderOpen, "폴더에서 보기") }
-        IconButton(onClick = onRename, enabled = exists) { Icon(Icons.Filled.Edit, "이름 바꾸기") }
-        IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, "삭제") }
+        when {
+            subtitleJob != null -> RowAction(Icons.Filled.Close, "자막 취소", "자막 만들기를 멈춥니다", true, onSubtitles)
+            hasSubtitle -> RowAction(
+                Icons.Filled.Subtitles, "자막 다시", "말소리를 다시 인식해 한국어 자막(.srt)을 새로 만듭니다", exists, onSubtitles,
+            )
+            else -> RowAction(
+                Icons.Filled.Subtitles, "자막 만들기",
+                "말소리를 인식해 한국어 자막(.srt)을 영상 옆에 만듭니다. 외국어는 한국어로 번역합니다", exists, onSubtitles,
+            )
+        }
+        RowAction(Icons.AutoMirrored.Filled.OpenInNew, "열기", "기본 동영상 플레이어로 재생합니다", exists, onOpen)
+        RowAction(Icons.Filled.FolderOpen, "폴더", "탐색기에서 이 파일이 있는 폴더를 엽니다", true, onShow)
+        RowAction(Icons.Filled.Edit, "이름 변경", "파일 이름을 바꿉니다(자막 파일도 함께)", exists, onRename)
+        RowAction(Icons.Filled.Delete, "삭제", "목록에서 지우고, 원하면 파일도 삭제합니다", true, onDelete)
+    }
+}
+
+/** 아이콘 아래에 짧은 이름을 적고, 마우스를 올리면 자세한 설명을 띄우는 버튼. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun RowAction(icon: ImageVector, label: String, description: String, enabled: Boolean, onClick: () -> Unit) {
+    TooltipArea(
+        tooltip = {
+            Surface(
+                color = MaterialTheme.colorScheme.inverseSurface,
+                contentColor = MaterialTheme.colorScheme.inverseOnSurface,
+                shape = RoundedCornerShape(6.dp),
+                shadowElevation = 4.dp,
+            ) { Text(description, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(8.dp)) }
+        },
+        delayMillis = 400,
+    ) {
+        Column(
+            Modifier
+                .width(64.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(enabled = enabled, onClick = onClick)
+                .padding(vertical = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            val color = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant
+            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+            Icon(icon, contentDescription = description, tint = color, modifier = Modifier.size(22.dp))
+            Text(label, style = MaterialTheme.typography.labelSmall, color = color, maxLines = 1)
+        }
     }
 }

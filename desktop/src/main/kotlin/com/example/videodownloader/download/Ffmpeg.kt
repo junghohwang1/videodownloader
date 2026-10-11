@@ -49,6 +49,17 @@ class Ffmpeg(private val client: OkHttpClient, private val toolsDir: File) {
         false
     }
 
+    /** 음성 인식용으로 소리만 16kHz 모노 WAV 로 뽑는다. */
+    suspend fun extractSpeechAudio(input: File, output: File) {
+        try {
+            run(listOf("-i", input.path, "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", output.path))
+        } catch (e: Exception) {
+            output.delete()
+            throw if (e is IOException || e is kotlinx.coroutines.CancellationException) e
+            else IOException("소리를 추출하지 못했습니다: ${e.message}", e)
+        }
+    }
+
     /** 영상 전용 + 음성 전용 파일을 MP4 하나로 합친다. */
     suspend fun mux(video: File, audio: File, output: File) {
         try {

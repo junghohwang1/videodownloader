@@ -16,6 +16,10 @@ data class AppSettings(
     val notifyOnComplete: Boolean = true,
     /** 창을 닫으면 종료하지 않고 트레이로 내린다(다운로드 계속). */
     val minimizeToTray: Boolean = true,
+    /** 내장 브라우저에서 광고(광고 서버 요청·광고 칸·유튜브 영상 광고)를 막는다. */
+    val blockAds: Boolean = true,
+    /** 영상 다운로드가 끝나면 자동으로 자막을 만든다(음성 인식). */
+    val autoSubtitles: Boolean = false,
 )
 
 class SettingsRepository(private val file: File) {

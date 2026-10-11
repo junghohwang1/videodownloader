@@ -3,6 +3,7 @@ package com.example.videodownloader.util
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.webkit.MimeTypeMap
@@ -11,14 +12,25 @@ import java.io.IOException
 
 /**
  * 저장 위치 관리.
- * - 일반 다운로드: 앱 전용 외부 저장소(Android/data/<패키지>/files/Movies). 저장소 권한이 필요 없다.
+ * - 일반 다운로드: 내장 저장공간/Download/VideoDownloader(Android 11+). "내 파일"·갤러리에서 바로 보인다.
+ *   앱이 만든 파일은 저장소 권한 없이 쓰고 지울 수 있다. Download 폴더는 영상 외 파일(.part, .srt)도 둘 수 있다.
+ *   Android 10 이나 공용 폴더를 쓸 수 없는 기기는 앱 전용 폴더(Android/data/<패키지>/files/Movies)에 둔다.
  * - 비공개 폴더: 앱 내부 저장소(files/private). 다른 앱·파일 관리자에서 보이지 않는다.
- * - "갤러리로 내보내기"는 MediaStore 를 통해 Movies/VideoDownloader 에 복사한다.
+ * - "갤러리로 내보내기"는 MediaStore 를 통해 Movies/VideoDownloader 에 옮긴다.
  */
 class Storage(private val context: Context) {
 
     val publicDir: File
-        get() = (context.getExternalFilesDir(Environment.DIRECTORY_MOVIES) ?: File(context.filesDir, "videos"))
+        get() = sharedDownloadDir() ?: appDownloadDir()
+
+    private fun sharedDownloadDir(): File? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
+        val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), EXPORT_FOLDER)
+        return dir.takeIf { (it.isDirectory || it.mkdirs()) && it.canWrite() }
+    }
+
+    private fun appDownloadDir(): File =
+        (context.getExternalFilesDir(Environment.DIRECTORY_MOVIES) ?: File(context.filesDir, "videos"))
             .also { it.mkdirs() }
 
     val privateDir: File
@@ -62,7 +74,8 @@ class Storage(private val context: Context) {
         return dst
     }
 
-    fun exportToGallery(file: File, mimeType: String?): Uri {
+    /** 갤러리에 복사하고, 실제로 저장된 파일 이름(겹치면 시스템이 바꾼다)을 돌려준다. */
+    fun exportToGallery(file: File, mimeType: String?): String {
         val mime = mimeType ?: guessMime(file.name)
         val (collection, relativePath) = when {
             mime.startsWith("video/") ->
@@ -92,11 +105,37 @@ class Storage(private val context: Context) {
             resolver.delete(uri, null, null)
             throw e
         }
-        return uri
+        return displayName(uri) ?: file.name
     }
+
+    /**
+     * 자막을 갤러리로 내보낸 영상 옆(Movies/VideoDownloader)에 같은 이름으로 둔다.
+     * 동영상 플레이어들이 같은 이름의 .srt 를 자동으로 붙여 준다. 실패해도 영상 내보내기는 그대로 둔다.
+     */
+    fun exportSubtitle(subtitle: File, exportedVideoName: String) {
+        runCatching {
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, exportedVideoName.substringBeforeLast('.') + ".srt")
+                put(MediaStore.MediaColumns.MIME_TYPE, "application/x-subrip")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_MOVIES}/$EXPORT_FOLDER")
+            }
+            val resolver = context.contentResolver
+            val uri = resolver.insert(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY), values)
+                ?: return
+            resolver.openOutputStream(uri)?.use { out -> subtitle.inputStream().use { it.copyTo(out) } }
+        }
+    }
+
+    private fun displayName(uri: Uri): String? =
+        context.contentResolver.query(uri, arrayOf(MediaStore.MediaColumns.DISPLAY_NAME), null, null, null)
+            ?.use { if (it.moveToFirst()) it.getString(0) else null }
 
     companion object {
         const val PART = ".part"
+
+        /** 영상과 같은 이름의 자막 파일(영상.srt). 영상을 옮기거나 지울 때 함께 다룬다. */
+        fun subtitleFor(video: File): File = File(video.parentFile, video.nameWithoutExtension + ".srt")
+
         const val EXPORT_FOLDER = "VideoDownloader"
         private val ILLEGAL = Regex("[\\\\/:*?\"<>|\\p{Cntrl}]")
         private val SPACES = Regex("\\s+")

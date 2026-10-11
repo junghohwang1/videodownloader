@@ -11,13 +11,20 @@ import okhttp3.Response
 
 /**
  * 웹페이지에서 영상을 받을 때와 같은 조건(User-Agent, Referer)으로 요청해야
- * 핫링크 차단 페이지에서도 내려받을 수 있다. (쿠키는 내장 브라우저가 붙는 2단계에서 연결한다.)
+ * 핫링크 차단·로그인 필요 페이지에서도 내려받을 수 있다. 쿠키는 내장 브라우저의 것을 쓴다.
  */
 fun Request.Builder.applyMediaHeaders(url: String, userAgent: String?, referer: String?): Request.Builder {
     header("User-Agent", userAgent?.takeIf { it.isNotBlank() } ?: DEFAULT_USER_AGENT)
     referer?.takeIf { it.isNotBlank() }?.let { header("Referer", it) }
+    runCatching { cookieProvider?.invoke(url) }.getOrNull()
+        ?.takeIf { it.isNotBlank() }
+        ?.let { header("Cookie", it) }
     return this
 }
+
+/** 주소 → Cookie 헤더 값. 내장 브라우저가 준비되면 설정된다. */
+@Volatile
+var cookieProvider: ((String) -> String?)? = null
 
 const val DEFAULT_USER_AGENT =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36"

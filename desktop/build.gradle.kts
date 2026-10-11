@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.example.videodownloader"
-version = "1.0.0"
+version = "1.1.0"
 
 kotlin {
     jvmToolchain(21)
@@ -22,6 +22,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("com.squareup.okhttp3:okhttp:5.5.0")
     implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.5")
+    // 내장 브라우저(Chromium). 네이티브 번들은 첫 실행 때 내려받는다.
+    implementation("dev.datlag:kcef:2025.03.23")
 
     testImplementation(kotlin("test"))
     testImplementation("junit:junit:4.13.2")
@@ -30,17 +32,23 @@ dependencies {
 compose.desktop {
     application {
         mainClass = "com.example.videodownloader.MainKt"
-        jvmArgs += listOf("-Dfile.encoding=UTF-8")
+        jvmArgs += listOf(
+            "-Dfile.encoding=UTF-8",
+            // 내장 브라우저(JCEF)가 AWT 내부 API 를 쓴다.
+            "--add-opens=java.desktop/sun.awt=ALL-UNNAMED",
+            "--add-opens=java.desktop/java.awt.peer=ALL-UNNAMED",
+            "--add-opens=java.desktop/sun.awt.windows=ALL-UNNAMED",
+        )
 
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
             packageName = "VideoDownloader"
-            packageVersion = "1.0.0"
+            packageVersion = "1.1.0"
             // MSI(WiX) 는 코드페이지 1252 라 한글을 넣으면 빌드가 실패한다(LGHT0311). 앱 화면은 한글 그대로다.
             description = "Video Downloader"
             vendor = "junghohwang1"
             // NewPipe Extractor(Rhino)·OkHttp 가 쓰는 JDK 모듈
-            modules("java.instrument", "java.naming", "java.net.http", "java.sql", "jdk.crypto.ec", "jdk.dynalink", "jdk.unsupported")
+            modules("java.instrument", "java.management", "java.naming", "java.net.http", "java.sql", "jdk.crypto.ec", "jdk.dynalink", "jdk.unsupported")
             windows {
                 menuGroup = "VideoDownloader"
                 shortcut = true

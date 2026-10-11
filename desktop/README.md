@@ -3,10 +3,12 @@
 Android 앱(`../app`)의 다운로드 엔진(HTTP 이어받기·HLS·유튜브)을 그대로 옮겨 Compose Multiplatform(Desktop)으로 만든 Windows 앱입니다.
 Android 빌드와 분리된 독립 Gradle 프로젝트라 Android SDK 없이 빌드됩니다.
 
-## 1단계 기능 (현재)
+## 기능
 
 | 영역 | 내용 |
 |---|---|
+| 내장 브라우저 | Android 판과 같은 구성: 주소/검색창(뒤로·앞으로·새로고침·⋮ 메뉴), 홈 화면 북마크 타일(우클릭 삭제·추가), 페이지 위 반투명 원형 다운로드 버튼(감지 개수 배지) → 화질 카드 다운로드 창(닫기·이름 변경·다운로드). 영상 링크·유튜브 썸네일·플레이어 위에서 **우클릭 → "이 영상 다운로드"**. 로그인·쿠키 유지, 다운로드에 브라우저 쿠키 사용 |
+| 영상 감지 | 유튜브는 주소(영상 ID)가 바뀔 때마다 화질 목록 조회, 그 밖의 사이트는 네트워크 요청(mp4/webm/m3u8…)과 페이지 `<video>` 요소를 3초마다 검사 |
 | 주소 분석 | 주소 붙여넣기(버튼 한 번에 붙여넣기+분석) → 유튜브는 화질 목록, m3u8 은 화질별 선택지, 영상 파일은 크기 확인, 일반 웹페이지는 HTML 안의 `og:video`·`<video>`·`<source>`·mp4/m3u8 주소(JSON 이스케이프 포함)를 찾아 보여줌. 페이지에 유튜브가 박혀 있으면 유튜브로 처리 |
 | 유튜브 | NewPipe Extractor 로 H.264+AAC 를 조각 단위로 받아 MP4 로 합침(최대 1080p), 360p 단일 파일, 음성만(M4A). 시작할 때마다 스트림 주소를 새로 조회해 이어받기 |
 | 다운로드 | 일반 파일 Range 이어받기, HLS 세그먼트 4개 병렬·AES-128 복호화 후 MP4 변환(실패 시 TS). 일시정지·재개·재시도·모두 재개/일시정지, 동시 다운로드 수 제한, 속도·남은 시간 표시 |
@@ -23,7 +25,8 @@ Android 빌드와 분리된 독립 Gradle 프로젝트라 Android SDK 없이 빌
 | MediaMuxer / Media3 Transformer | ffmpeg(`-c copy`, 재인코딩 없음). 처음 필요할 때 자동으로 `%LOCALAPPDATA%\VideoDownloader\ffmpeg` 에 내려받음(약 110MB, 한 번만). PATH 에 있으면 그것을 씀 |
 | ExoPlayer | Windows 기본 플레이어로 열기 |
 | 포그라운드 서비스·알림 | 트레이 아이콘·트레이 알림 |
-| WebView 쿠키 | 아직 없음(2단계 내장 브라우저에서 연결) |
+| WebView | Chromium(JCEF, KCEF). 첫 실행 때 구성 요소를 `%LOCALAPPDATA%\VideoDownloader\kcef-bundle` 에 한 번만 내려받음(설치 후 약 575MB) |
+| 하단 시트 | 별도 창(웹페이지가 OS 창이라 그 위에 그리려면 창이어야 함). 같은 이유로 다운로드 버튼도 작은 팝업 창 |
 
 ## 빌드
 
@@ -32,6 +35,7 @@ Android 빌드와 분리된 독립 Gradle 프로젝트라 Android SDK 없이 빌
 ```bash
 cd desktop
 ./gradlew run                       # 개발 실행
+./gradlew run --args="https://..."  # 내장 브라우저에서 주소를 열고 시작(설치본: VideoDownloader.exe <주소>)
 ./gradlew test                      # 단위 테스트(HLS 파서, 주소 분석, 유튜브 ID)
 E2E_TEST=1 ./gradlew test --tests '*EndToEndTest*'   # 실제 사이트로 웹페이지·유튜브·HLS 다운로드 확인
 ./gradlew packageReleaseExe         # build/compose/binaries/main-release/exe/VideoDownloader-1.0.0.exe
@@ -44,8 +48,14 @@ MSI(WiX)는 코드페이지 1252 라 설치 메타데이터(설명·시작 메�
 
 ## 다음 단계
 
-- **2단계**: 내장 브라우저(JCEF/KCEF) — 탭, 북마크, 방문 기록, 네트워크 요청 감지로 영상 자동 감지, 쿠키 공유, 페이지 번역
-- **3단계**: 비공개 폴더(PIN), 자동 업데이트 확인, 코드 서명
+- 여러 탭, 방문 기록, 페이지 번역(Android 판에 있는 나머지 브라우저 기능)
+- 비공개 폴더(PIN), 자동 업데이트 확인, 코드 서명
+
+## 구현 메모
+
+- Skia 의 Direct3D 렌더러는 투명 팝업 창(다운로드 버튼)을 그리다 충돌해서 `skiko.renderApi=OPENGL` 로 고정했다.
+- `compose.layers.type=WINDOW`: 팝업·메뉴를 별도 창으로 띄워 Chromium 창 위에 보이게 한다.
+- KCEF 기본 설정은 하위 프로세스 경로가 실행 중인 JDK 를 가리켜 Chromium 이 바로 종료된다. 번들 경로(`jcef_helper.exe`, `locales`)를 직접 지정한다.
 
 ## 이용 안내
 

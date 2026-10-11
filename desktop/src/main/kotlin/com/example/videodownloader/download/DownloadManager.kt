@@ -125,6 +125,7 @@ class DownloadManager(
         store.delete(id)
         if (deleteFile) {
             File(entity.filePath).delete()
+            Storage.subtitleFor(File(entity.filePath)).delete()
             File(entity.filePath + Storage.PART).delete()
             storage.tempDir(id).deleteRecursively()
         } else {
@@ -145,6 +146,8 @@ class DownloadManager(
         val ext = src.name.substringAfterLast('.', "").let { if (it.isEmpty()) "" else ".$it" }
         val dst = storage.uniqueFile(src.parentFile, Storage.sanitizeFileName(newBaseName) + ext)
         if (!src.renameTo(dst)) return "이름을 바꿀 수 없습니다(다른 프로그램에서 사용 중일 수 있습니다)"
+        // 같은 이름의 자막(.srt)도 따라간다.
+        Storage.subtitleFor(src).takeIf { it.exists() }?.renameTo(Storage.subtitleFor(dst))
         store.updateLocation(id, dst.path, dst.name)
         return null
     }

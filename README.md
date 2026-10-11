@@ -14,7 +14,10 @@
 | 영상 감지 | WebView 네트워크 요청을 관찰(mp4/webm/mov/mkv… · m3u8) + 페이지 `<video>` 요소 주기 검사. 크기·길이·화질을 미리 조회하고, HLS 마스터의 하위 화질은 하나로 묶어 표시 |
 | 다운로드 | 일반 파일은 Range 요청으로 이어받기, HLS는 최고 화질 세그먼트를 4개씩 병렬로 받고 AES-128 복호화 후 MP4로 리먹싱(실패하면 TS로 저장). 일시정지·재개·재시도, 동시 다운로드 수 제한, Wi-Fi 전용, 진행/완료 알림(포그라운드 서비스) |
 | 파일 | 진행 중/완료 탭, 썸네일, 재생, 공유, 갤러리로 내보내기(Movies/VideoDownloader), 이름 변경, 비공개 폴더로 이동, 삭제 |
-| 플레이어 | Media3 ExoPlayer 전체 화면 재생, 가로 전환 버튼 |
+| 플레이어 | Media3 ExoPlayer 전체 화면 재생, 가로 전환 버튼, 영상과 같은 이름의 `.srt` 자막을 한국어 자막으로 자동 표시 |
+| 자막 | 유튜브 영상은 다운로드할 때 한국어 자막(없으면 다른 언어 자막을 ML Kit 으로 기기 안에서 번역)을 함께 저장. 그 밖의 영상은 완료 목록의 「자막 만들기」로 기기 안에서 음성 인식(whisper.cpp, small 모델 약 190MB를 처음 한 번 받음) 후 한국어로 번역. 설정에서 "다운로드 후 자동으로 자막 만들기" 가능 |
+| 광고 차단 | 주요 광고 서버 요청 차단, 유튜브 영상 광고 데이터 제거·자동 건너뛰기·광고 칸 숨기기(설정에서 끄기 가능) |
+| 업데이트 | 앱을 켤 때 공개 저장소의 최신 릴리스를 확인해 새 버전을 안내하고, 앱 안에서 받아 설치(설정 > 버전에서 직접 확인 가능) |
 | 비공개 폴더 | 4자리 PIN(PBKDF2 해시 저장). 파일은 앱 내부 저장소에 보관해 다른 앱에서 보이지 않음. 탭을 벗어나거나 앱이 백그라운드로 가면 다시 잠김 |
 | 설정 | 동시 다운로드 수, Wi-Fi 전용, 완료 알림, 검색 엔진, 방문 기록 저장/삭제, 쿠키·캐시 삭제, PIN 초기화 |
 
@@ -34,6 +37,9 @@ app/src/main/java/com/example/videodownloader/
 ├─ vault/     비공개 폴더 + PIN 패드
 ├─ settings/  설정 화면
 ├─ player/    PlayerActivity
+├─ subtitle/  자막 만들기: AudioDecoder(16kHz 변환) · WhisperNative(JNI) · SpeechModel · SubtitleGenerator · SubtitleService
+├─ youtube/   NewPipe 연동, 유튜브 자막(YouTubeSubtitles) · ML Kit 번역(SubtitleTranslator)
+├─ update/    앱 안 업데이트
 ├─ data/      Room(downloads/history/bookmarks), DataStore 설정
 └─ util/      Storage(저장 경로·MediaStore), 포맷터
 ```
@@ -50,6 +56,7 @@ app/src/main/java/com/example/videodownloader/
 - JDK 17 이상(21에서 확인), Android SDK Platform 37
 - AGP 9.4.1 / Gradle 9.7.1 / Kotlin 2.3.21 / Compose BOM 2026.09.00
 - minSdk 29(Android 10), targetSdk 37
+- **Android NDK + CMake 3.22.1**(SDK Manager 에서 설치): 「자막 만들기」의 whisper.cpp 를 빌드합니다. 첫 빌드 때 whisper.cpp v1.9.4 소스를 GitHub 에서 받아 해시를 확인합니다(인터넷 필요). 네이티브 라이브러리는 arm64-v8a·x86_64 만 넣습니다.
 
 ```bash
 ./gradlew :app:assembleDebug        # app/build/outputs/apk/debug/app-debug.apk

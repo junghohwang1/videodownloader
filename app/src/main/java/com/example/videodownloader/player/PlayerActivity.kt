@@ -38,10 +38,13 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import com.example.videodownloader.util.Storage
 import java.io.File
 
 /** 받은 파일을 재생하는 전체 화면 플레이어(Media3 ExoPlayer). */
@@ -65,8 +68,27 @@ class PlayerActivity : ComponentActivity() {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
 
+        // 영상과 같은 이름의 .srt 가 있으면 한국어 자막으로 붙여 기본으로 켠다(자막 버튼으로 끌 수 있다).
+        val subtitle = Storage.subtitleFor(File(path))
+        val mediaItem = MediaItem.Builder()
+            .setUri(Uri.fromFile(File(path)))
+            .apply {
+                if (subtitle.exists()) {
+                    setSubtitleConfigurations(
+                        listOf(
+                            MediaItem.SubtitleConfiguration.Builder(Uri.fromFile(subtitle))
+                                .setMimeType(MimeTypes.APPLICATION_SUBRIP)
+                                .setLanguage("ko")
+                                .setLabel("한국어")
+                                .setSelectionFlags(C.SELECTION_FLAG_DEFAULT)
+                                .build(),
+                        ),
+                    )
+                }
+            }
+            .build()
         val exo = ExoPlayer.Builder(this).build().apply {
-            setMediaItem(MediaItem.fromUri(Uri.fromFile(File(path))))
+            setMediaItem(mediaItem)
             prepare()
             playWhenReady = true
         }
@@ -86,6 +108,7 @@ class PlayerActivity : ComponentActivity() {
                                 this.player = exo
                                 setShowNextButton(false)
                                 setShowPreviousButton(false)
+                                setShowSubtitleButton(true)
                                 setControllerVisibilityListener(
                                     PlayerView.ControllerVisibilityListener { visibility ->
                                         controlsVisible = visibility == View.VISIBLE
