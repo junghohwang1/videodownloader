@@ -14,8 +14,8 @@ android {
         applicationId = "com.example.videodownloader"
         minSdk = 29
         targetSdk = 37
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "1.1.0"
 
         // 자막 만들기(whisper.cpp)용 네이티브 라이브러리. 휴대폰(arm64)과 에뮬레이터(x86_64)만 넣는다.
         ndk {
