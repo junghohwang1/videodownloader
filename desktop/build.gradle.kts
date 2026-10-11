@@ -43,7 +43,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
             packageName = "VideoDownloader"
-            packageVersion = "1.1.0"
+            packageVersion = "1.1.1"
             // MSI(WiX) 는 코드페이지 1252 라 한글을 넣으면 빌드가 실패한다(LGHT0311). 앱 화면은 한글 그대로다.
             description = "Video Downloader"
             vendor = "junghohwang1"

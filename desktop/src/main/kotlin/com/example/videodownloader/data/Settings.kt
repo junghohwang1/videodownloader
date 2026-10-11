@@ -14,7 +14,7 @@ data class AppSettings(
     val downloadDir: String = "",
     val maxConcurrent: Int = 3,
     val notifyOnComplete: Boolean = true,
-    /** 창을 닫으면 종료하지 않고 트레이로 내린다(다운로드 계속). */
+    /** 다운로드·자막 작업 중에 창을 닫으면 트레이에서 마저 하고, 끝나면 스스로 종료한다. 할 일이 없으면 바로 종료한다. */
     val minimizeToTray: Boolean = true,
     /** 내장 브라우저에서 광고(광고 서버 요청·광고 칸·유튜브 영상 광고)를 막는다. */
     val blockAds: Boolean = true,
