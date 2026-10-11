@@ -58,6 +58,16 @@ class WebView2View(
     @Volatile
     private var closed = false
 
+    // 웹뷰가 만들어지기 전에 요청받은 표시 여부·크기. 준비되면 적용한다(탭 복원 때 모든 탭이 겹쳐 보이지 않게).
+    @Volatile
+    private var wantVisible = true
+
+    @Volatile
+    private var wantWidth = 0
+
+    @Volatile
+    private var wantHeight = 0
+
     /** 부모 창 [parent] 에 웹뷰를 만들고, 준비되면 [startUrl] 을 연다. [scripts] 는 문서가 만들어질 때마다 먼저 실행된다. */
     fun create(parent: WinDef.HWND, startUrl: String?, scripts: List<String>, onReady: () -> Unit = {}) = host.post {
         val env = host.environment ?: return@post
@@ -67,6 +77,8 @@ class WebView2View(
             if (closed || ComHandler.hresult(result) < 0 || ctrl == null) return@ComHandler
             val c = ComPtr(ctrl).also { it.addRef() }
             controller = c
+            c.call(CONTROLLER_PUT_BOUNDS, RectByValue(0, 0, wantWidth, wantHeight))
+            c.call(CONTROLLER_PUT_IS_VISIBLE, if (wantVisible) 1 else 0)
             val wv = c.getObject(CONTROLLER_GET_CORE_WEBVIEW2) ?: return@ComHandler
             webview = wv
             setup(wv, scripts)
@@ -230,13 +242,18 @@ class WebView2View(
     }
 
     /** 웹뷰 크기를 부모 창의 [width]x[height](물리 픽셀)로 맞춘다. */
-    fun setBounds(width: Int, height: Int) = host.post {
-        controller?.call(CONTROLLER_PUT_BOUNDS, RectByValue(0, 0, width, height))
+    fun setBounds(width: Int, height: Int) {
+        wantWidth = width
+        wantHeight = height
+        host.post { controller?.call(CONTROLLER_PUT_BOUNDS, RectByValue(0, 0, width, height)) }
     }
 
-    fun setVisible(visible: Boolean) = host.post {
-        controller?.call(CONTROLLER_PUT_IS_VISIBLE, if (visible) 1 else 0)
-        if (visible) controller?.call(CONTROLLER_MOVE_FOCUS, 0)
+    fun setVisible(visible: Boolean) {
+        wantVisible = visible
+        host.post {
+            controller?.call(CONTROLLER_PUT_IS_VISIBLE, if (visible) 1 else 0)
+            if (visible) controller?.call(CONTROLLER_MOVE_FOCUS, 0)
+        }
     }
 
     /** 창이 움직였을 때 드롭다운 등 팝업 위치를 맞춘다. */
