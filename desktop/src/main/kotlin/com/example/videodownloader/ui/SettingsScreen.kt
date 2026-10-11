@@ -79,7 +79,7 @@ fun SettingsScreen(container: AppContainer) {
         SwitchRow("완료되면 알림 표시", settings.notifyOnComplete) { on ->
             container.settings.update { it.copy(notifyOnComplete = on) }
         }
-        SwitchRow("창을 닫으면 트레이로 내리기(다운로드 계속)", settings.minimizeToTray) { on ->
+        SwitchRow("받는 중에 창을 닫으면 트레이에서 마저 받고 끝나면 자동 종료", settings.minimizeToTray) { on ->
             container.settings.update { it.copy(minimizeToTray = on) }
         }
         SwitchRow("광고 차단(광고 서버·광고 칸·유튜브 영상 광고)", settings.blockAds) { on ->
